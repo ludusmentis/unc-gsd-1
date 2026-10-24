@@ -15,6 +15,9 @@ import { authorize, issueSession, rebindSocket, sessionPlayer, hash, expireRoomS
 
 const ROOM_NS = '/game';
 
+/** Upper bound on line slots a client may claim (sanity cap, not gameplay). */
+export const MAX_LINE_SLOTS = 64;
+
 interface SocketData {
   token?: string;
   roomCode?: string;
@@ -46,6 +49,15 @@ function broadcastLobby(io: IOServer, roomCode: string) {
     type: 'lobby',
     room: toClientRoom(room),
   } satisfies ServerEvent);
+}
+
+/** Placement payload validation shared by the WS gate. */
+export function isValidPlacement(trackId: unknown, slotIndex: unknown): boolean {
+  return (
+    typeof trackId === 'string' && trackId.length > 0 && trackId.length <= 64 &&
+    typeof slotIndex === 'number' && Number.isInteger(slotIndex) &&
+    slotIndex >= 0 && slotIndex <= MAX_LINE_SLOTS
+  );
 }
 
 export function attachWs(httpServer: HttpServer): IOServer {
@@ -110,6 +122,21 @@ export function attachWs(httpServer: HttpServer): IOServer {
           } else {
             return reject('bad_action');
           }
+          break;
+        }
+        case 'place_song': {
+          // Server-authoritative placement (R020): the session was already
+          // authorized above; here we validate the action payload shape and
+          // broadcast to every client in the room.
+          const { trackId, slotIndex } = env.action;
+          if (!isValidPlacement(trackId, slotIndex)) return reject('bad_action');
+          logRoom(roomCode, 'song_placed', { player: session.playerId, trackId, slotIndex });
+          io.of(ROOM_NS).to(roomCode).emit('event', {
+            type: 'song_placed',
+            playerId: session.playerId,
+            trackId,
+            slotIndex,
+          } satisfies ServerEvent);
           break;
         }
         case 'ping_state': {

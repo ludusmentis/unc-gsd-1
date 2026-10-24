@@ -25,6 +25,7 @@ export type ClientAction =
   | { type: 'join_room'; code: string; name: string }
   | { type: 'leave_room' }
   | { type: 'lock_roster' }
+  | { type: 'place_song'; trackId: string; slotIndex: number }
   // placeholder game action for the mocked loop; S01 keeps server-authoritative gating
   | { type: 'ping_state' };
 
@@ -37,12 +38,24 @@ export interface ActionEnvelope {
 
 export type ServerError = { error: string; recovery?: string };
 
+/** Track summary the server broadcasts with deal/placement events. */
+export interface TrackSummary {
+  id: string;
+  name: string;
+  artists: string[];
+  albumName: string;
+  releaseDate: string;
+  year: string;
+}
+
 // ---- server -> client events ----
 export type ServerEvent =
   | { type: 'joined'; room: RoomState; you: Player; token: SessionToken }
   | { type: 'room_created'; room: RoomState; you: Player; token: SessionToken }
   | { type: 'lobby'; room: RoomState }
   | { type: 'roster_locked'; room: RoomState }
+  | { type: 'song_dealt'; track: TrackSummary; yourAnchor: TrackSummary | null }
+  | { type: 'song_placed'; playerId: string; trackId: string; slotIndex: number }
   | { type: 'rejected'; reason: string; error: string; recovery?: string };
 
 export const ERROR_MESSAGES = {
