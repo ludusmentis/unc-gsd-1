@@ -67,3 +67,6 @@ vendor/
 coverage/
 .cache/
 tmp/
+
+# runtime sqlite data (default DB_PATH volume target)
+data/

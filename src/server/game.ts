@@ -1,6 +1,17 @@
 import type { Server as IOServer } from 'socket.io';
 import type { Room } from './rooms';
-import { getRoom } from './rooms';
+import { getRoom, restoreRoom } from './rooms';
+import { restoreSessions } from './sessions';
+import {
+  loadAllAtBoot,
+  saveHostBinding,
+  saveGameState,
+  deleteGameState,
+  saveRoom,
+  deleteHostBinding,
+  type PersistedGame,
+} from './persist';
+import { restoreHostSessions, getValidAccessToken } from './spotify/auth';
 import {
   buildDeck,
   eligibleTracks,
@@ -15,7 +26,6 @@ import {
   type PlaybackEvent,
 } from './playback';
 import { fetchPlaylistTracks, type SpotifyTrack } from './spotify/api';
-import { getValidAccessToken } from './spotify/auth';
 import { COPY } from '../lib/copy';
 import {
   evaluatePlacement,
@@ -31,9 +41,13 @@ import type { TrackSummary, ServerEvent, GameStateSync, LineEntry } from './even
  * on the host speaker, and the server-authoritative game loop (lines, scores,
  * handover, forfeit, win). The WS layer calls into this module; clients never
  * touch game state directly (D008: one state object, S03 SQLite).
+ *
+ * S03-T01: every mutation persists through to SQLite via persist.ts so a
+ * container restart restores the live game (restoreFromDb). Playback services
+ * are lazily (re)created — a restore defers until a live io + access token.
  */
 
-interface HostBinding {
+export interface HostBinding {
   sessionId: string; // host Spotify session (cookie) — access token lives here
   playlistId: string;
   playlistName: string;
@@ -47,11 +61,12 @@ interface GameRuntime {
   anchors: Map<string, TrackSummary>; // playerId -> anchor song
   lines: Map<string, LineEntry[]>; // playerId -> server-authoritative timeline
   scores: Map<string, number>; // playerId -> correct placements
-  playback: PlaybackService;
+  playback: PlaybackService | null; // lazily rebuilt after a restore
   current: { playerId: string; track: DeckTrack } | null;
   turnOrder: string[]; // playerId rotation
   turnIdx: number;
   awaitingNext: string | null; // playerId parked on the handover screen
+  awaitingNextAt: number | null; // epoch ms — S03 nudge timer re-arm on restore
   nudgeTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -79,6 +94,9 @@ const defaultDeps: GameDeps = {
 
 let deps: GameDeps = defaultDeps;
 
+/** Live io for lazily (re)created playback services (set by startGame/restoreFromDb). */
+let activeIo: IOServer | null = null;
+
 /** Test hook: override Spotify access (mocked Spotify in tests). */
 export function configureGameDeps(override: Partial<GameDeps>): void {
   deps = { ...defaultDeps, ...override };
@@ -89,6 +107,7 @@ export function _resetGamesForTests(): void {
   bindings.clear();
   games.clear();
   deps = defaultDeps;
+  activeIo = null;
 }
 
 // ---- helpers ----
@@ -112,6 +131,48 @@ function logGame(roomCode: string, event: string, extra: Record<string, unknown>
   console.log(JSON.stringify({ ts: new Date().toISOString(), scope: 'game', room: roomCode, event, ...extra }));
 }
 
+/** Serialize a GameRuntime for SQLite (persist.ts write-through). */
+function snapshotGame(game: GameRuntime): PersistedGame {
+  return {
+    anchors: [...game.anchors.entries()],
+    lines: [...game.lines.entries()],
+    scores: [...game.scores.entries()],
+    turnOrder: game.turnOrder,
+    turnIdx: game.turnIdx,
+    awaitingNext: game.awaitingNext,
+    awaitingNextAt: game.awaitingNextAt,
+    deck: game.dealer.remainingTracks(),
+    current: game.current ? { playerId: game.current.playerId, track: { ...game.current.track } } : null,
+  };
+}
+
+function persistGameState(roomCode: string): void {
+  const game = games.get(roomCode);
+  if (game) saveGameState(roomCode, snapshotGame(game));
+}
+
+/**
+ * Lazily (re)create the PlaybackService for a game (after a restore, or any
+ * path where playback is still null). Needs a live io + a fresh access token
+ * from the (restored) host session. No-op if the game/binding is gone.
+ */
+async function ensurePlayback(roomCode: string, game: GameRuntime): Promise<PlaybackService | null> {
+  if (game.playback) return game.playback;
+  if (!activeIo) return null;
+  const binding = bindings.get(roomCode);
+  if (!binding) return null;
+  try {
+    const accessToken = await deps.getAccessToken(binding.sessionId);
+    game.playback = deps.createPlayback(accessToken, binding.speakerName, (e) =>
+      relayPlayback(activeIo!, roomCode, e),
+    );
+    return game.playback;
+  } catch (err) {
+    logGame(roomCode, 'playback_rebuild_failed', { detail: String(err).slice(0, 120) });
+    return null;
+  }
+}
+
 /**
  * Host locked in a playlist + speaker (from the select API route, which
  * carries the host session cookie). Fetches + caches playlist tracks once
@@ -127,14 +188,16 @@ export async function registerHostPlaylist(
     const accessToken = await deps.getAccessToken(opts.sessionId);
     const tracks = await deps.fetchTracks(accessToken, opts.playlistId);
     const eligibleCount = eligibleTracks(tracks).length;
-    bindings.set(roomCode, {
+    const binding: HostBinding = {
       sessionId: opts.sessionId,
       playlistId: opts.playlistId,
       playlistName: opts.playlistName,
       speakerName: opts.speakerName,
       tracks,
       eligibleCount,
-    });
+    };
+    bindings.set(roomCode, binding);
+    saveHostBinding(roomCode, binding);
     logGame(roomCode, 'playlist_registered', {
       playlistId: opts.playlistId,
       eligible: eligibleCount,
@@ -211,8 +274,10 @@ export async function startGame(roomCode: string, io: IOServer): Promise<void> {
   const playback = deps.createPlayback(accessToken, binding.speakerName, (e) =>
     relayPlayback(io, roomCode, e),
   );
+  activeIo = io;
   room.status = 'in_progress';
   room.playlistName = binding.playlistName;
+  saveRoom(room);
   games.set(roomCode, {
     dealer,
     anchors,
@@ -223,8 +288,10 @@ export async function startGame(roomCode: string, io: IOServer): Promise<void> {
     turnOrder: room.players.map((p) => p.id),
     turnIdx: 0,
     awaitingNext: null,
+    awaitingNextAt: null,
     nudgeTimer: null,
   });
+  persistGameState(roomCode);
   logGame(roomCode, 'game_started', { players: rosterSize, deck: result.eligibleCount });
   roomEvent(io, roomCode, { type: 'game_started', room: clientRoom(room) });
   await dealNext(roomCode, io);
@@ -295,6 +362,7 @@ function enterAwaitingNext(roomCode: string, playerId: string, io: IOServer): vo
   if (!game) return;
   game.current = null;
   game.awaitingNext = playerId;
+  game.awaitingNextAt = Date.now() + NUDGE_AFTER_MS;
   if (game.nudgeTimer) clearTimeout(game.nudgeTimer);
   game.nudgeTimer = setTimeout(() => {
     const g = games.get(roomCode);
@@ -302,8 +370,10 @@ function enterAwaitingNext(roomCode: string, playerId: string, io: IOServer): vo
     logGame(roomCode, 'nudge_sent', { player: g.awaitingNext });
     roomEvent(io, roomCode, { type: 'nudge', playerId: g.awaitingNext, copy: COPY.nudge });
     g.nudgeTimer = null;
+    g.awaitingNextAt = null;
   }, NUDGE_AFTER_MS);
   roomEvent(io, roomCode, { type: 'awaiting_next', playerId });
+  persistGameState(roomCode);
   broadcastSync(roomCode, io);
 }
 
@@ -313,6 +383,7 @@ function clearAwaitingNext(roomCode: string): void {
   if (game.nudgeTimer) clearTimeout(game.nudgeTimer);
   game.nudgeTimer = null;
   game.awaitingNext = null;
+  game.awaitingNextAt = null;
 }
 
 // ---- game over ----
@@ -324,6 +395,9 @@ function endGame(roomCode: string, io: IOServer, winnerIds: string[], reason: 'f
   clearAwaitingNext(roomCode);
   game.current = null;
   room.status = 'ended';
+  saveRoom(room);
+  deleteGameState(roomCode);
+  deleteHostBinding(roomCode);
   logGame(roomCode, 'game_over', { winners: winnerIds, reason });
   roomEvent(io, roomCode, { type: 'game_over', winnerIds, reason, copy });
   broadcastSync(roomCode, io);
@@ -361,8 +435,10 @@ export async function dealNext(roomCode: string, io: IOServer): Promise<void> {
     anchors: anchorsObj,
   } satisfies ServerEvent);
   logGame(roomCode, 'song_dealt', { player: playerId, trackId: track.id });
+  persistGameState(roomCode);
   broadcastSync(roomCode, io);
-  await game.playback.playDeal(track);
+  const playback = await ensurePlayback(roomCode, game);
+  if (playback) await playback.playDeal(track);
 }
 
 /**
@@ -393,7 +469,7 @@ export async function onPlaced(
   if (!line) return;
 
   logGame(roomCode, 'turn_committed', { player: playerId, trackId, slotIndex });
-  await game.playback.pause('placement');
+  if (game.playback) await game.playback.pause('placement');
 
   const scoringLine: ScoringTrack[] = line.map((e) => ({ trackId: e.trackId, releaseDate: e.summary.releaseDate }));
   const placement = evaluatePlacement(scoringLine, { trackId, releaseDate: track.releaseDate }, slotIndex);
@@ -468,11 +544,88 @@ export async function onSkipTurn(roomCode: string, io: IOServer): Promise<void> 
 export async function wakeSpeaker(roomCode: string, io: IOServer): Promise<void> {
   const game = games.get(roomCode);
   if (!game) return;
-  const woke = await game.playback.wake();
+  const playback = await ensurePlayback(roomCode, game);
+  if (!playback) return;
+  const woke = await playback.wake();
   if (woke.ok && game.current) {
     logGame(roomCode, 'wake_retry');
-    await game.playback.playDeal(game.current.track);
+    await playback.playDeal(game.current.track);
   }
+}
+
+// ---- S03 boot restore (R022/D008/MEM009) ----
+
+/**
+ * Rebuild every in-memory structure from the DB at boot (called from
+ * src/server/main.ts before listen; tests simulate a restart by resetting
+ * the in-memory Maps and calling this against the same DB_PATH).
+ *
+ * Persists the DATA, rebuilds the RUNTIME:
+ * - Rooms rehydrate as-is (player id counter bumped past restored ids).
+ * - Sessions rehydrate with socketId cleared to null — a reconnecting
+ *   socket re-binds via rejoin/rebindSocket (T02).
+ * - Host token store rehydrates from host_tokens (refresh token incl.) —
+ *   the host never re-auths after a restart.
+ * - Host bindings (playlist + speaker pick) rehydrate from host_bindings.
+ * - In-progress games rebuild their GameRuntime: dealer over the persisted
+ *   remaining deck IN ORDER (no shuffle), nudge timer re-armed from the
+ *   persisted awaitingNextAt when awaitingNext is set, playback deferred
+ *   (lazily created by ensurePlayback — needs live io + fresh access token).
+ *   A persisted game with `current` set re-plays that unplaced track on the
+ *   next resume path (host tap / auto); playback itself is rebuilt lazily.
+ */
+export function restoreFromDb(io: IOServer): void {
+  activeIo = io;
+  const boot = loadAllAtBoot();
+  for (const room of boot.rooms) restoreRoom(room);
+  restoreSessions(boot.sessions);
+  restoreHostSessions();
+  for (const b of boot.bindings) bindings.set(b.roomCode, b.binding);
+  for (const g of boot.games) {
+    const room = getRoom(g.roomCode);
+    if (!room || room.status !== 'in_progress') continue;
+    const game: GameRuntime = {
+      dealer: createDealer(g.state.deck as DeckTrack[]),
+      anchors: new Map(g.state.anchors),
+      lines: new Map(g.state.lines as [string, LineEntry[]][]),
+      scores: new Map(g.state.scores),
+      playback: null, // lazily rebuilt by ensurePlayback (needs live io + token)
+      current: g.state.current
+        ? { playerId: g.state.current.playerId, track: g.state.current.track as DeckTrack }
+        : null,
+      turnOrder: g.state.turnOrder,
+      turnIdx: g.state.turnIdx,
+      awaitingNext: g.state.awaitingNext,
+      awaitingNextAt: g.state.awaitingNextAt,
+      nudgeTimer: null,
+    };
+    // Re-arm the nudge timer from the persisted timestamp (fires when the
+    // original NUDGE_AFTER_MS window elapses; never restarts the full window).
+    if (game.awaitingNext && game.awaitingNextAt) {
+      const remainingMs = game.awaitingNextAt - Date.now();
+      game.nudgeTimer = setTimeout(() => {
+        const gg = games.get(g.roomCode);
+        if (!gg || !gg.awaitingNext) return;
+        logGame(g.roomCode, 'nudge_sent', { player: gg.awaitingNext });
+        roomEvent(io, g.roomCode, { type: 'nudge', playerId: gg.awaitingNext, copy: COPY.nudge });
+        gg.nudgeTimer = null;
+        gg.awaitingNextAt = null;
+      }, Math.max(0, remainingMs));
+    }
+    games.set(g.roomCode, game);
+    logGame(g.roomCode, 'game_restored', {
+      players: game.turnOrder.length,
+      turnIdx: game.turnIdx,
+      current: game.current ? game.current.track.id : null,
+    });
+  }
+  logGame('*', 'boot_restore_complete', {
+    rooms: boot.rooms.length,
+    sessions: boot.sessions.length,
+    hostSessions: boot.hostTokens.length,
+    bindings: boot.bindings.length,
+    games: boot.games.length,
+  });
 }
 
 export function currentTurn(roomCode: string): { playerId: string; trackId: string } | null {

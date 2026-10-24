@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import next from 'next';
 import { attachWs } from './ws';
+import { restoreFromDb } from './game';
 
 const PORT = Number(process.env.PORT ?? 3000);
 
@@ -12,6 +13,11 @@ async function main() {
 
   // WebSocket layer shares the HTTP upgrade path with Next.js.
   const io = attachWs(httpServer);
+
+  // S03 boot restore (R022/D008/MEM009): rebuild rooms, sessions (socketId
+  // nulled — rejoin re-binds), host Spotify tokens, and in-progress games
+  // from SQLite before we start listening.
+  restoreFromDb(io);
 
   httpServer.listen(PORT, () => {
     console.log(JSON.stringify({ ts: new Date().toISOString(), scope: 'server', event: 'listening', port: PORT }));

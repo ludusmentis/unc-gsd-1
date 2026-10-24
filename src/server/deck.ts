@@ -124,6 +124,8 @@ export interface Dealer {
   reject(track: DeckTrack): void;
   /** Tracks remaining (excluding rejected blacklists). */
   remaining(): number;
+  /** Remaining tracks in deal order (S03 persistence: no shuffle on restore). */
+  remainingTracks(): DeckTrack[];
 }
 
 export function createDealer(deck: DeckTrack[]): Dealer {
@@ -146,6 +148,10 @@ export function createDealer(deck: DeckTrack[]): Dealer {
     },
     remaining() {
       return queue.filter((t) => !blacklisted.has(t.id)).length;
+    },
+    remainingTracks() {
+      prune();
+      return queue.map((t) => ({ ...t }));
     },
   };
 }

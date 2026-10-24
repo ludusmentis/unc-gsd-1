@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { saveHostTokens as persistSaveHostTokens, deleteHostTokens, loadAllAtBoot } from '../persist';
 
 /**
  * Spotify authorization-code flow — server-side only. Client secrets are read
@@ -155,12 +156,22 @@ interface HostSession {
 
 const hostSessions = new Map<string, HostSession>();
 
+/** S03 boot restore: rehydrate the host token store from the DB (T01).
+ * Tokens (incl. refreshToken) are persisted so a restart never forces
+ * re-auth; never logged. */
+export function restoreHostSessions(): void {
+  for (const h of loadAllAtBoot().hostTokens) {
+    hostSessions.set(h.sessionId, { tokens: h.tokens, createdAt: 0 });
+  }
+}
+
 export function newHostSessionId(): string {
   return randomBytes(24).toString('base64url');
 }
 
 export function saveHostTokens(sessionId: string, tokens: SpotifyTokens): void {
   hostSessions.set(sessionId, { tokens, createdAt: Date.now() });
+  persistSaveHostTokens(sessionId, tokens);
   logAuth('host_tokens_saved', { session: sessionId.slice(0, 8) });
 }
 
@@ -170,6 +181,7 @@ export function getHostTokens(sessionId: string): SpotifyTokens | null {
 
 export function clearHostSession(sessionId: string): void {
   hostSessions.delete(sessionId);
+  deleteHostTokens(sessionId);
   logAuth('host_session_cleared', { session: sessionId.slice(0, 8) });
 }
 
@@ -189,6 +201,7 @@ export async function getValidAccessToken(
   if (!tokens.refreshToken) throw new Error('host session expired (no refresh token)');
   const fresh = await refreshTokens(tokens.refreshToken, fetchImpl);
   session.tokens = fresh;
+  persistSaveHostTokens(sessionId, fresh);
   return fresh.accessToken;
 }
 

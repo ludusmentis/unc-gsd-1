@@ -1,5 +1,6 @@
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import type { SessionToken } from './events';
+import { saveSession, deleteSession, expireRoomSessions as persistExpireRoomSessions } from './persist';
 
 /**
  * Session tokens are opaque (32 random bytes, base64url) and are validated
@@ -9,7 +10,7 @@ import type { SessionToken } from './events';
 
 interface Session {
   token: SessionToken;
-  socketId: string;
+  socketId: string | null; // null after a boot restore — rejoin re-binds (T02)
   playerId: string;
   roomId: string;
 }
@@ -20,6 +21,7 @@ const sessions = new Map<SessionToken, Session>();
 export function issueSession(roomId: string, playerId: string, socketId: string): SessionToken {
   const token = randomBytes(32).toString('base64url');
   sessions.set(token, { token, socketId, playerId, roomId });
+  saveSession(token, playerId, roomId, socketId);
   return token;
 }
 
@@ -27,7 +29,13 @@ export function rebindSocket(token: SessionToken, socketId: string): boolean {
   const s = sessions.get(token);
   if (!s) return false;
   s.socketId = socketId;
+  saveSession(s.token, s.playerId, s.roomId, socketId);
   return true;
+}
+
+/** Drop one session (leave_room path). */
+export function dropSession(token: SessionToken): void {
+  if (sessions.delete(token)) deleteSession(token);
 }
 
 /** True iff token is valid, belongs to roomId, and is bound to this socket id. */
@@ -49,6 +57,15 @@ export function sessionPlayer(token: SessionToken): { playerId: string; roomId: 
 export function expireRoomSessions(roomId: string): void {
   for (const [tok, s] of sessions) {
     if (s.roomId === roomId) sessions.delete(tok);
+  }
+  persistExpireRoomSessions(roomId);
+}
+
+/** S03 boot restore: rehydrate persisted sessions with socketId cleared to
+ * null — a reconnecting socket re-binds via rejoin/rebindSocket (T02). */
+export function restoreSessions(items: { token: string; playerId: string; roomId: string; socketId: string | null }[]): void {
+  for (const s of items) {
+    sessions.set(s.token, { token: s.token, socketId: null, playerId: s.playerId, roomId: s.roomId });
   }
 }
 
