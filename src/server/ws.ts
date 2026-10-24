@@ -12,6 +12,7 @@ import {
   _resetForTests,
 } from './rooms';
 import { authorize, issueSession, rebindSocket, sessionPlayer, hash, expireRoomSessions, _resetForTests as resetSessions } from './sessions';
+import { startGame, onPlaced, wakeSpeaker } from './game';
 
 const ROOM_NS = '/game';
 
@@ -113,12 +114,21 @@ export function attachWs(httpServer: HttpServer): IOServer {
       switch (env.action.type) {
         case 'lock_roster': {
           if (room.hostPlayerId !== session.playerId) return reject('not_host');
-          if (lockRoster(roomCode, session.playerId)) {
+          // Already locked (a previous start failed, e.g. playlist too
+          // small)? This is a retry: re-run start, don't re-lock.
+          const retry = room.status === 'locked';
+          if (retry || lockRoster(roomCode, session.playerId)) {
+            if (!retry) {
             logRoom(roomCode, 'roster_locked', { players: room.players.length });
             io.of(ROOM_NS).to(roomCode).emit('event', {
               type: 'roster_locked',
               room: toClientRoom(room),
             } satisfies ServerEvent);
+            // Fire-and-forget: deck build + first deal + playback start.
+            }
+            startGame(roomCode, io).catch((err) =>
+              logRoom(roomCode, 'game_start_failed', { detail: String(err).slice(0, 120) }),
+            );
           } else {
             return reject('bad_action');
           }
@@ -137,6 +147,18 @@ export function attachWs(httpServer: HttpServer): IOServer {
             trackId,
             slotIndex,
           } satisfies ServerEvent);
+          // Active player committing the dealt track: pause + next deal.
+          onPlaced(roomCode, session.playerId, trackId, io).catch((err) =>
+            logRoom(roomCode, 'place_followup_failed', { detail: String(err).slice(0, 120) }),
+          );
+          break;
+        }
+        case 'wake_speaker': {
+          if (room.hostPlayerId !== session.playerId) return reject('not_host');
+          logRoom(roomCode, 'wake_requested', { player: session.playerId });
+          wakeSpeaker(roomCode, io).catch((err) =>
+            logRoom(roomCode, 'wake_failed', { detail: String(err).slice(0, 120) }),
+          );
           break;
         }
         case 'ping_state': {

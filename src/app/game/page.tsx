@@ -48,9 +48,12 @@ export default function GamePage() {
     socket.on('event', (e: ServerEvent) => {
       if (e.type === 'song_dealt') {
         setDealt(e.track);
-        if (e.yourAnchor) {
-          setAnchor(e.yourAnchor);
-          sessionStorage.setItem('anchor', JSON.stringify(e.yourAnchor));
+        // Server broadcasts the per-player anchor map; resolve our own.
+        const myId = sessionStorage.getItem('playerId');
+        const mine = (myId && e.anchors[myId]) || null;
+        if (mine) {
+          setAnchor(mine);
+          sessionStorage.setItem('anchor', JSON.stringify(mine));
         }
       } else if (e.type === 'song_placed') {
         // Echo of our own commit (already applied locally) or another

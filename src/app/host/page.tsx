@@ -17,6 +17,8 @@ export default function HostPage() {
       if (e.type === 'room_created') {
         sessionStorage.setItem('token', e.token);
         sessionStorage.setItem('code', e.room.code);
+        sessionStorage.setItem('playerId', e.you.id);
+        sessionStorage.setItem('isHost', '1');
         router.push('/lobby');
       } else if (e.type === 'rejected') {
         setErr(`${e.error} — ${e.recovery ?? ''}`);

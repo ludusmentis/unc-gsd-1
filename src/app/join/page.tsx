@@ -18,6 +18,8 @@ export default function JoinPage() {
       if (e.type === 'joined') {
         sessionStorage.setItem('token', e.token);
         sessionStorage.setItem('code', e.room.code);
+        sessionStorage.setItem('playerId', e.you.id);
+        sessionStorage.setItem('isHost', '0');
         router.push('/lobby');
       } else if (e.type === 'rejected') {
         setErr(`${e.error} — ${e.recovery ?? ''}`);

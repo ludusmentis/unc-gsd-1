@@ -27,7 +27,8 @@ export type ClientAction =
   | { type: 'lock_roster' }
   | { type: 'place_song'; trackId: string; slotIndex: number }
   // placeholder game action for the mocked loop; S01 keeps server-authoritative gating
-  | { type: 'ping_state' };
+  | { type: 'ping_state' }
+  | { type: 'wake_speaker' };
 
 /** Envelope for any client action: forged actions without a valid session
  * token bound to the socket's identity are rejected. */
@@ -54,7 +55,10 @@ export type ServerEvent =
   | { type: 'room_created'; room: RoomState; you: Player; token: SessionToken }
   | { type: 'lobby'; room: RoomState }
   | { type: 'roster_locked'; room: RoomState }
-  | { type: 'song_dealt'; track: TrackSummary; yourAnchor: TrackSummary | null }
+  | { type: 'game_started'; room: RoomState }
+  | { type: 'song_dealt'; track: TrackSummary; anchors: Record<string, TrackSummary> }
+  | { type: 'game_error'; error: string; recovery?: string }
+  | { type: 'playback_state'; state: 'playing' | 'paused' | 'audio_cap' | 'wake_speaker' | 'error'; copy?: string; message?: string }
   | { type: 'song_placed'; playerId: string; trackId: string; slotIndex: number }
   | { type: 'rejected'; reason: string; error: string; recovery?: string };
 
@@ -66,4 +70,5 @@ export const ERROR_MESSAGES = {
   bad_name: { error: 'pick a name (1-24 chars)', recovery: 'type your name and try again' },
   not_host: { error: "only the host can do that", recovery: 'chill, wait for the host' },
   bad_action: { error: 'nah, that did nothing', recovery: 'refresh the page' },
+  not_your_turn: { error: "not your turn rn", recovery: 'wait for your song' },
 } satisfies Record<string, ServerError>;
