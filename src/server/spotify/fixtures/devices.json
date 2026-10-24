@@ -1,0 +1,20 @@
+[
+  {
+    "id": "dev-speaker-1",
+    "name": "Party Speaker",
+    "type": "Speaker",
+    "is_active": false
+  },
+  {
+    "id": "dev-phone-host",
+    "name": "Or's iPhone",
+    "type": "Smartphone",
+    "is_active": true
+  },
+  {
+    "id": "dev-laptop",
+    "name": "MacBook Air",
+    "type": "Computer",
+    "is_active": false
+  }
+]
