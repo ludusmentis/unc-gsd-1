@@ -17,12 +17,20 @@ import {
 import { fetchPlaylistTracks, type SpotifyTrack } from './spotify/api';
 import { getValidAccessToken } from './spotify/auth';
 import { COPY } from '../lib/copy';
-import type { TrackSummary, ServerEvent } from './events';
+import {
+  evaluatePlacement,
+  computeCorrectSlots,
+  hasWonByScore,
+  deckEmptyWinners,
+  type ScoringTrack,
+} from './scoring';
+import type { TrackSummary, ServerEvent, GameStateSync, LineEntry } from './events';
 
 /**
  * Game orchestrator — wires roster lock to deck build, first deal, playback
- * on the host speaker, pause-on-placement, and round-robin re-deal. The WS
- * layer calls into this module; clients never touch game state directly.
+ * on the host speaker, and the server-authoritative game loop (lines, scores,
+ * handover, forfeit, win). The WS layer calls into this module; clients never
+ * touch game state directly (D008: one state object, S03 SQLite).
  */
 
 interface HostBinding {
@@ -37,11 +45,19 @@ interface HostBinding {
 interface GameRuntime {
   dealer: Dealer;
   anchors: Map<string, TrackSummary>; // playerId -> anchor song
+  lines: Map<string, LineEntry[]>; // playerId -> server-authoritative timeline
+  scores: Map<string, number>; // playerId -> correct placements
   playback: PlaybackService;
   current: { playerId: string; track: DeckTrack } | null;
   turnOrder: string[]; // playerId rotation
   turnIdx: number;
+  awaitingNext: string | null; // playerId parked on the handover screen
+  nudgeTimer: ReturnType<typeof setTimeout> | null;
 }
+
+/** Idle nudge: after this long on the handover screen the server pings the
+ * active player once per deal with Gen Z copy (no hard turn timer). */
+export const NUDGE_AFTER_MS = 30_000;
 
 const bindings = new Map<string, HostBinding>();
 const games = new Map<string, GameRuntime>();
@@ -69,6 +85,7 @@ export function configureGameDeps(override: Partial<GameDeps>): void {
 }
 
 export function _resetGamesForTests(): void {
+  for (const g of games.values()) if (g.nudgeTimer) clearTimeout(g.nudgeTimer);
   bindings.clear();
   games.clear();
   deps = defaultDeps;
@@ -137,8 +154,9 @@ export function getHostBinding(roomCode: string): { eligibleCount: number; playl
 
 /**
  * Called by the WS layer right after the host locks the roster. Builds the
- * deck against the final roster (R019), deals the first song, and starts
- * playback on the host speaker. Failures broadcast game_error with copy.
+ * deck against the final roster (R019), seeds each player's anchor as line
+ * slot 0, deals the first song, and starts playback on the host speaker.
+ * Failures broadcast game_error with copy.
  */
 export async function startGame(roomCode: string, io: IOServer): Promise<void> {
   const room = getRoom(roomCode);
@@ -171,12 +189,25 @@ export async function startGame(roomCode: string, io: IOServer): Promise<void> {
     return;
   }
 
-  const dealer = createDealer(result.deck);
   const anchors = new Map<string, TrackSummary>();
   for (const p of room.players) {
     const a = result.anchors[room.players.indexOf(p) % result.anchors.length];
     anchors.set(p.id, toTrackSummary(a));
   }
+  // Anchor tracks never double as dealt cards: filter them out of the deal
+  // queue (requiredDeckSize already budgets the seeds).
+  const anchorIds = new Set([...anchors.values()].map((a) => a.id));
+  const dealer = createDealer(result.deck.filter((t) => !anchorIds.has(t.id)));
+
+  // Seed every line: anchor as slot 0, score 0.
+  const lines = new Map<string, LineEntry[]>();
+  const scores = new Map<string, number>();
+  for (const p of room.players) {
+    const a = anchors.get(p.id)!;
+    lines.set(p.id, [{ trackId: a.id, summary: a }]);
+    scores.set(p.id, 0);
+  }
+
   const playback = deps.createPlayback(accessToken, binding.speakerName, (e) =>
     relayPlayback(io, roomCode, e),
   );
@@ -185,10 +216,14 @@ export async function startGame(roomCode: string, io: IOServer): Promise<void> {
   games.set(roomCode, {
     dealer,
     anchors,
+    lines,
+    scores,
     playback,
     current: null,
     turnOrder: room.players.map((p) => p.id),
     turnIdx: 0,
+    awaitingNext: null,
+    nudgeTimer: null,
   });
   logGame(roomCode, 'game_started', { players: rosterSize, deck: result.eligibleCount });
   roomEvent(io, roomCode, { type: 'game_started', room: clientRoom(room) });
@@ -204,6 +239,32 @@ function clientRoom(room: Room) {
     minPlayers: room.minPlayers,
     playlistName: room.playlistName,
   };
+}
+
+// ---- full-state sync (R006: every mutation broadcasts the snapshot) ----
+
+/** Server-authoritative snapshot of the whole game state. */
+export function getGameStateSync(roomCode: string): GameStateSync | null {
+  const game = games.get(roomCode);
+  const room = getRoom(roomCode);
+  if (!game || !room) return null;
+  const lines: Record<string, LineEntry[]> = {};
+  for (const [pid, line] of game.lines) lines[pid] = line.map((e) => ({ ...e }));
+  const scores: Record<string, number> = {};
+  for (const [pid, s] of game.scores) scores[pid] = s;
+  return {
+    status: room.status,
+    turn: game.current ? { playerId: game.current.playerId, track: toTrackSummary(game.current.track) } : null,
+    lines,
+    scores,
+    awaitingNext: game.awaitingNext,
+  };
+}
+
+/** Broadcast state_sync to the whole room. Call after every mutation. */
+function broadcastSync(roomCode: string, io: IOServer): void {
+  const snap = getGameStateSync(roomCode);
+  if (snap) roomEvent(io, roomCode, { type: 'state_sync', state: snap });
 }
 
 function relayPlayback(io: IOServer, roomCode: string, e: PlaybackEvent) {
@@ -225,16 +286,67 @@ function relayPlayback(io: IOServer, roomCode: string, e: PlaybackEvent) {
   });
 }
 
-/** Deal the next song to the next player in rotation and start playback. */
+// ---- handover: the awaiting_next phase ----
+
+/** Enter the awaiting_next phase after a placement was resolved. */
+function enterAwaitingNext(roomCode: string, playerId: string, io: IOServer): void {
+  const game = games.get(roomCode);
+  if (!game) return;
+  game.current = null;
+  game.awaitingNext = playerId;
+  if (game.nudgeTimer) clearTimeout(game.nudgeTimer);
+  game.nudgeTimer = setTimeout(() => {
+    const g = games.get(roomCode);
+    if (!g || !g.awaitingNext) return;
+    logGame(roomCode, 'nudge_sent', { player: g.awaitingNext });
+    roomEvent(io, roomCode, { type: 'nudge', playerId: g.awaitingNext, copy: COPY.nudge });
+    g.nudgeTimer = null;
+  }, NUDGE_AFTER_MS);
+  roomEvent(io, roomCode, { type: 'awaiting_next', playerId });
+  broadcastSync(roomCode, io);
+}
+
+function clearAwaitingNext(roomCode: string): void {
+  const game = games.get(roomCode);
+  if (!game) return;
+  if (game.nudgeTimer) clearTimeout(game.nudgeTimer);
+  game.nudgeTimer = null;
+  game.awaitingNext = null;
+}
+
+// ---- game over ----
+
+function endGame(roomCode: string, io: IOServer, winnerIds: string[], reason: 'first_to_10' | 'deck_empty', copy: string): void {
+  const room = getRoom(roomCode);
+  const game = games.get(roomCode);
+  if (!room || !game) return;
+  clearAwaitingNext(roomCode);
+  game.current = null;
+  room.status = 'ended';
+  logGame(roomCode, 'game_over', { winners: winnerIds, reason });
+  roomEvent(io, roomCode, { type: 'game_over', winnerIds, reason, copy });
+  broadcastSync(roomCode, io);
+}
+
+/**
+ * Deal the next song to the next player in rotation and start playback.
+ * On deck exhaustion compute the winner(s) via the scoring helpers
+ * (longest line; ties = shared victory) and end the game.
+ */
 export async function dealNext(roomCode: string, io: IOServer): Promise<void> {
   const game = games.get(roomCode);
   const room = getRoom(roomCode);
   if (!game || !room) return;
   const track = game.dealer.deal();
   if (!track) {
-    room.status = 'ended';
-    roomEvent(io, roomCode, { type: 'lobby', room: clientRoom(room) });
-    logGame(roomCode, 'deck_exhausted');
+    // Deck empty: longest-line winner(s), ties shared.
+    const scoringLines = new Map<string, readonly ScoringTrack[]>();
+    for (const [pid, line] of game.lines) {
+      scoringLines.set(pid, line.map((e) => ({ trackId: e.trackId, releaseDate: e.summary.releaseDate })));
+    }
+    const winnerIds = deckEmptyWinners(scoringLines);
+    logGame(roomCode, 'deck_exhausted', { winners: winnerIds });
+    endGame(roomCode, io, winnerIds, 'deck_empty', COPY.deckEmpty);
     return;
   }
   const playerId = game.turnOrder[game.turnIdx % game.turnOrder.length];
@@ -248,21 +360,103 @@ export async function dealNext(roomCode: string, io: IOServer): Promise<void> {
     anchors: anchorsObj,
   } satisfies ServerEvent);
   logGame(roomCode, 'song_dealt', { player: playerId, trackId: track.id });
+  broadcastSync(roomCode, io);
   await game.playback.playDeal(track);
 }
 
 /**
- * Called by the WS layer after a validated place_song. If it was the active
- * player committing the currently dealt track: pause playback, move to the
- * next turn. Other placements (spectators/out-of-turn) are broadcast-only.
+ * Server-authoritative placement resolution (R005/R007): evaluate via the
+ * pure scoring module BEFORE any broadcast. Correct -> insert into the
+ * line, score +1, turn_result, win check (first to 10) before advancing.
+ * Forfeit -> the song never enters the line, turn_forfeit reveals the
+ * year + correct slots. Either way the room enters awaiting_next (no
+ * auto-deal): the just-played player's next_turn deals, host skip
+ * force-deals.
  */
-export async function onPlaced(roomCode: string, playerId: string, trackId: string, io: IOServer): Promise<void> {
+export async function onPlaced(
+  roomCode: string,
+  playerId: string,
+  trackId: string,
+  slotIndex: number,
+  io: IOServer
+): Promise<void> {
   const game = games.get(roomCode);
   if (!game || !game.current) return;
   if (game.current.playerId !== playerId || game.current.track.id !== trackId) return;
-  logGame(roomCode, 'turn_committed', { player: playerId, trackId });
+  const room = getRoom(roomCode);
+  if (!room || room.status !== 'in_progress') return;
+  const track = game.current.track;
+  const summary = toTrackSummary(track);
+  const line = game.lines.get(playerId);
+  const score = game.scores.get(playerId) ?? 0;
+  if (!line) return;
+
+  logGame(roomCode, 'turn_committed', { player: playerId, trackId, slotIndex });
   await game.playback.pause('placement');
-  game.current = null;
+
+  const scoringLine: ScoringTrack[] = line.map((e) => ({ trackId: e.trackId, releaseDate: e.summary.releaseDate }));
+  const placement = evaluatePlacement(scoringLine, { trackId, releaseDate: track.releaseDate }, slotIndex);
+
+  if (placement.result === 'forfeit') {
+    // Forfeit: song never enters the line; reveal year + correct slots.
+    const correctSlots = computeCorrectSlots(scoringLine, { trackId, releaseDate: track.releaseDate });
+    game.scores.set(playerId, score);
+    logGame(roomCode, 'turn_forfeit', { player: playerId, trackId, correctSlots });
+    roomEvent(io, roomCode, {
+      type: 'turn_forfeit',
+      playerId,
+      track: summary,
+      year: summary.year,
+      correctSlots,
+    });
+    enterAwaitingNext(roomCode, playerId, io);
+    return;
+  }
+
+  // Correct: insert the dealt track's own entry at slotIndex (existing
+  // entries keep their summaries), score +1, then check first-to-10 win.
+  const nextLine = line.slice();
+  nextLine.splice(slotIndex, 0, { trackId, summary });
+  game.lines.set(playerId, nextLine);
+  const newScore = score + 1;
+  game.scores.set(playerId, newScore);
+  roomEvent(io, roomCode, { type: 'turn_result', playerId, track: summary, slotIndex });
+  if (hasWonByScore(newScore)) {
+    endGame(roomCode, io, [playerId], 'first_to_10', COPY.win);
+    return;
+  }
+  enterAwaitingNext(roomCode, playerId, io);
+}
+
+/**
+ * Handover: the just-played player taps next. Only valid while that player
+ * is parked on the awaiting_next screen; the next player in rotation is
+ * then dealt a song.
+ */
+export async function onNextTurn(
+  roomCode: string,
+  playerId: string,
+  io: IOServer
+): Promise<{ ok: true } | { ok: false; reason: 'not_awaiting_you' }> {
+  const game = games.get(roomCode);
+  const room = getRoom(roomCode);
+  if (!game || !room) return { ok: false, reason: 'not_awaiting_you' };
+  if (room.status !== 'in_progress' || game.awaitingNext !== playerId) {
+    return { ok: false, reason: 'not_awaiting_you' };
+  }
+  logGame(roomCode, 'next_turn', { player: playerId });
+  clearAwaitingNext(roomCode);
+  await dealNext(roomCode, io);
+  return { ok: true };
+}
+
+/** Host skip: force-deal regardless of who is parked on the handover. */
+export async function onSkipTurn(roomCode: string, io: IOServer): Promise<void> {
+  const game = games.get(roomCode);
+  const room = getRoom(roomCode);
+  if (!game || !room || room.status !== 'in_progress') return;
+  logGame(roomCode, 'skip_turn', { skipper: game.awaitingNext });
+  clearAwaitingNext(roomCode);
   await dealNext(roomCode, io);
 }
 

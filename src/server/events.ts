@@ -26,7 +26,9 @@ export type ClientAction =
   | { type: 'leave_room' }
   | { type: 'lock_roster' }
   | { type: 'place_song'; trackId: string; slotIndex: number }
-  // placeholder game action for the mocked loop; S01 keeps server-authoritative gating
+  // handover: the just-played player taps next; host can force-deal
+  | { type: 'next_turn' }
+  | { type: 'skip_turn' }
   | { type: 'ping_state' }
   | { type: 'wake_speaker' };
 
@@ -49,6 +51,21 @@ export interface TrackSummary {
   year: string;
 }
 
+/** One entry in a player's timeline: track id + full server summary. */
+export interface LineEntry {
+  trackId: string;
+  summary: TrackSummary;
+}
+
+/** Full server-authoritative snapshot broadcast after every mutation. */
+export interface GameStateSync {
+  status: RoomState['status'];
+  turn: { playerId: string; track: TrackSummary } | null;
+  lines: Record<string, LineEntry[]>;
+  scores: Record<string, number>;
+  awaitingNext: string | null;
+}
+
 // ---- server -> client events ----
 export type ServerEvent =
   | { type: 'joined'; room: RoomState; you: Player; token: SessionToken }
@@ -60,6 +77,12 @@ export type ServerEvent =
   | { type: 'game_error'; error: string; recovery?: string }
   | { type: 'playback_state'; state: 'playing' | 'paused' | 'audio_cap' | 'wake_speaker' | 'error'; copy?: string; message?: string }
   | { type: 'song_placed'; playerId: string; trackId: string; slotIndex: number }
+  | { type: 'state_sync'; state: GameStateSync }
+  | { type: 'turn_result'; playerId: string; track: TrackSummary; slotIndex: number }
+  | { type: 'turn_forfeit'; playerId: string; track: TrackSummary; year: string; correctSlots: number[] }
+  | { type: 'awaiting_next'; playerId: string }
+  | { type: 'game_over'; winnerIds: string[]; reason: 'first_to_10' | 'deck_empty'; copy: string }
+  | { type: 'nudge'; playerId: string; copy: string }
   | { type: 'rejected'; reason: string; error: string; recovery?: string };
 
 export const ERROR_MESSAGES = {
@@ -71,4 +94,7 @@ export const ERROR_MESSAGES = {
   not_host: { error: "only the host can do that", recovery: 'chill, wait for the host' },
   bad_action: { error: 'nah, that did nothing', recovery: 'refresh the page' },
   not_your_turn: { error: "not your turn rn", recovery: 'wait for your song' },
+  not_host_for_skip: { error: 'only the host can skip a turn', recovery: 'let them cook 🎤' },
+  not_awaiting_you: { error: "it's not your call rn", recovery: 'wait for the active player' },
+  game_not_in_progress: { error: "the game aint running rn", recovery: 'head back to the lobby' },
 } satisfies Record<string, ServerError>;

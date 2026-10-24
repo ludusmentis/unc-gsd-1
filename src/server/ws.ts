@@ -12,7 +12,7 @@ import {
   _resetForTests,
 } from './rooms';
 import { authorize, issueSession, rebindSocket, sessionPlayer, hash, expireRoomSessions, _resetForTests as resetSessions } from './sessions';
-import { startGame, onPlaced, wakeSpeaker } from './game';
+import { startGame, onPlaced, wakeSpeaker, onNextTurn, onSkipTurn, getGameStateSync } from './game';
 
 const ROOM_NS = '/game';
 
@@ -69,7 +69,7 @@ export function attachWs(httpServer: HttpServer): IOServer {
     const reject = (reason: keyof typeof ERROR_MESSAGES) =>
       send({ type: 'rejected', reason, ...ERROR_MESSAGES[reason] });
 
-    socket.on('action', (env: ActionEnvelope) => {
+    socket.on('action', async (env: ActionEnvelope) => {
       // ---- create_room: no token yet, but must carry a name ----
       if (env?.action?.type === 'create_room') {
         if (!validName(env.action.name)) return reject('bad_name');
@@ -136,8 +136,10 @@ export function attachWs(httpServer: HttpServer): IOServer {
         }
         case 'place_song': {
           // Server-authoritative placement (R020): the session was already
-          // authorized above; here we validate the action payload shape and
-          // broadcast to every client in the room.
+          // authorized above; here we validate the action payload shape,
+          // then the server evaluates via the pure scoring module and emits
+          // the one authoritative result event (turn_result / turn_forfeit)
+          // plus a full state_sync snapshot.
           const { trackId, slotIndex } = env.action;
           if (!isValidPlacement(trackId, slotIndex)) return reject('bad_action');
           logRoom(roomCode, 'song_placed', { player: session.playerId, trackId, slotIndex });
@@ -147,10 +149,39 @@ export function attachWs(httpServer: HttpServer): IOServer {
             trackId,
             slotIndex,
           } satisfies ServerEvent);
-          // Active player committing the dealt track: pause + next deal.
-          onPlaced(roomCode, session.playerId, trackId, io).catch((err) =>
+          // Active player committing the dealt track: evaluate, then handover.
+          onPlaced(roomCode, session.playerId, trackId, slotIndex, io).catch((err) =>
             logRoom(roomCode, 'place_followup_failed', { detail: String(err).slice(0, 120) }),
           );
+          break;
+        }
+        case 'next_turn': {
+          // Handover: only the just-played player can advance from the
+          // awaiting_next screen.
+          if (room.status !== 'in_progress') return reject('game_not_in_progress');
+          const res = await onNextTurn(roomCode, session.playerId, io);
+          if (!res.ok) return reject('not_awaiting_you');
+          break;
+        }
+        case 'skip_turn': {
+          // Host-only force-deal: skips whoever is parked on the handover.
+          if (room.hostPlayerId !== session.playerId) return reject('not_host_for_skip');
+          if (room.status !== 'in_progress') return reject('game_not_in_progress');
+          logRoom(roomCode, 'skip_turn', { host: session.playerId });
+          onSkipTurn(roomCode, io).catch((err) =>
+            logRoom(roomCode, 'skip_followup_failed', { detail: String(err).slice(0, 120) }),
+          );
+          break;
+        }
+        case 'ping_state': {
+          // (Re)connect sync: a live game hands back the full snapshot;
+          // otherwise the lobby roster.
+          const snap = getGameStateSync(roomCode);
+          if (snap) {
+            send({ type: 'state_sync', state: snap });
+          } else {
+            broadcastLobby(io, roomCode);
+          }
           break;
         }
         case 'wake_speaker': {
@@ -159,10 +190,6 @@ export function attachWs(httpServer: HttpServer): IOServer {
           wakeSpeaker(roomCode, io).catch((err) =>
             logRoom(roomCode, 'wake_failed', { detail: String(err).slice(0, 120) }),
           );
-          break;
-        }
-        case 'ping_state': {
-          broadcastLobby(io, roomCode);
           break;
         }
         case 'leave_room': {

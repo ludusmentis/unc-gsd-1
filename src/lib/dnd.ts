@@ -6,6 +6,7 @@
  * All geometry is pure so tests/line.test.ts can cover it without a DOM.
  */
 import type { ActionEnvelope, TrackSummary } from '@/server/events';
+export type { TrackSummary };
 
 /** Minimum touch target for drop zones (iOS/Android accessibility floor). */
 export const MIN_TARGET_PX = 48;

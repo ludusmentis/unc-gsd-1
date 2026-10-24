@@ -106,7 +106,7 @@ describe('commit event shape', () => {
     const env = placeSongEnvelope('tok123', 'track-9', 3);
     expect(env.token).toBe('tok123');
     expect(env.action).toEqual({ type: 'place_song', trackId: 'track-9', slotIndex: 3 });
-    expect(Number.isInteger(env.action.slotIndex)).toBe(true);
+    expect(env.action.type === 'place_song' && Number.isInteger(env.action.slotIndex)).toBe(true);
   });
 
   it('isValidSlotIndex accepts 0..MAX and rejects non-integers/negatives/overflows', () => {

@@ -38,4 +38,10 @@ export const COPY = {
     recovery: 'host: try starting again',
   },
   gameStarted: 'locked in — first song incoming',
+  nudge: "bestie the song's still playing — place it rn",
+  skip: 'host skipped the vibe — next song incoming',
+  forfeitReveal: 'nah — it dropped in {year}, it goes right there',
+  handover: 'locked in — tap next 🔜 when ready',
+  win: 'W 🏆 first to 10 — run it back?',
+  deckEmpty: 'outta songs — longest timeline takes the W 🏆',
 } as const;
