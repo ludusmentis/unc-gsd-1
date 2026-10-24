@@ -14,6 +14,9 @@ import {
   type TrackSummary,
 } from '../src/lib/dnd';
 import { isValidPlacement, MAX_LINE_SLOTS as SERVER_MAX_SLOTS } from '../src/server/ws';
+import { entriesToSlots } from '../src/lib/dnd';
+import { randomQuip, QUIP_COUNT } from '../src/lib/commentary';
+import { COPY } from '../src/lib/copy';
 
 const song = (id: string, year = '1999'): TrackSummary => ({
   id,
@@ -140,6 +143,55 @@ describe('server placement gate (R020 surface)', () => {
     expect(isValidPlacement('abc', '0')).toBe(false);
     expect(isValidPlacement('abc', Infinity)).toBe(false);
     expect(isValidPlacement('abc', NaN)).toBe(false);
+  });
+});
+
+describe('server snapshot line rendering (T04)', () => {
+  const sum = (id: string, year: string) => ({
+    id,
+    name: `Song ${id}`,
+    artists: ['Artist'],
+    albumName: 'Album',
+    releaseDate: `${year}-07-01`,
+    year,
+  });
+
+  it('entriesToSlots: anchor first, entries in server order with summaries', () => {
+    const slots = entriesToSlots([
+      { trackId: 'a', summary: sum('a', '1990') },
+      { trackId: 'b', summary: sum('b', '1995') },
+      { trackId: 'c', summary: sum('c', '2000') },
+    ]);
+    expect(slots[0].kind).toBe('anchor');
+    if (slots[0].kind === 'anchor') expect(slots[0].track.year).toBe('1990');
+    expect(slots.map((s) => (s.kind === 'placed' ? s.trackId : 'anchor'))).toEqual(['anchor', 'b', 'c']);
+    expect(slots.filter((s) => s.kind === 'placed').every((s) => s.kind === 'placed' && s.track?.year)).toBe(true);
+  });
+
+  it('entriesToSlots: empty snapshot renders empty line', () => {
+    expect(entriesToSlots([])).toEqual([]);
+  });
+});
+
+describe('watcher commentary (T04)', () => {
+  it('quip pool holds ~50 non-empty entries and picks deterministic values', () => {
+    expect(QUIP_COUNT).toBeGreaterThanOrEqual(50);
+    const a = randomQuip(() => 0);
+    const b = randomQuip(() => 0.999);
+    expect(a.length).toBeGreaterThan(0);
+    expect(b.length).toBeGreaterThan(0);
+    expect(randomQuip(() => 0)).toBe(a);
+    expect(randomQuip(() => 0.999)).toBe(b);
+  });
+});
+
+describe('client copy source (T04)', () => {
+  it('forfeitReveal interpolates the year; handover/next/skip strings exist', () => {
+    expect(COPY.forfeitReveal.replace('{year}', '1988')).toBe('nah — it dropped in 1988, it goes right there');
+    expect(COPY.handover.length + COPY.next.length + COPY.skipHost.length).toBeGreaterThan(0);
+    expect(COPY.win.includes('W')).toBe(true);
+    expect(COPY.winShared.includes('tied')).toBe(true);
+    expect(COPY.lose.includes('L')).toBe(true);
   });
 });
 

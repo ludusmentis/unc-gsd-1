@@ -254,6 +254,7 @@ export function getGameStateSync(roomCode: string): GameStateSync | null {
   for (const [pid, s] of game.scores) scores[pid] = s;
   return {
     status: room.status,
+    players: room.players,
     turn: game.current ? { playerId: game.current.playerId, track: toTrackSummary(game.current.track) } : null,
     lines,
     scores,

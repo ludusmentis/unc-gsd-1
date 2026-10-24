@@ -60,6 +60,7 @@ export interface LineEntry {
 /** Full server-authoritative snapshot broadcast after every mutation. */
 export interface GameStateSync {
   status: RoomState['status'];
+  players: Player[];
   turn: { playerId: string; track: TrackSummary } | null;
   lines: Record<string, LineEntry[]>;
   scores: Record<string, number>;

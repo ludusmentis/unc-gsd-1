@@ -6,6 +6,7 @@
  * All geometry is pure so tests/line.test.ts can cover it without a DOM.
  */
 import type { ActionEnvelope, TrackSummary } from '@/server/events';
+import type { LineEntry as ServerLineEntry } from '@/server/events';
 export type { TrackSummary };
 
 /** Minimum touch target for drop zones (iOS/Android accessibility floor). */
@@ -95,6 +96,20 @@ export function buildSlots(
     slots.push({ kind: 'placed', track: p.track ?? null, trackId: p.trackId, slotIndex: p.slotIndex });
   }
   return slots;
+}
+
+/**
+ * Server-authoritative line entries (T04) -> display slots. Entry 0 is
+ * the anchor seed; entries keep their server summaries so years render.
+ */
+export function entriesToSlots(entries: readonly ServerLineEntry[]): LineEntry[] {
+  if (entries.length === 0) return [];
+  const placements = entries.slice(1).map((e, i) => ({
+    trackId: e.trackId,
+    slotIndex: i + 1,
+    track: e.summary,
+  }));
+  return buildSlots(entries[0].summary, placements);
 }
 
 /** Stable key for React lists and drop-zone ids. */

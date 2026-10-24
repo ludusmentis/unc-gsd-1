@@ -43,5 +43,9 @@ export const COPY = {
   forfeitReveal: 'nah — it dropped in {year}, it goes right there',
   handover: 'locked in — tap next 🔜 when ready',
   win: 'W 🏆 first to 10 — run it back?',
+  winShared: 'tied W 🏆 — y\'all both ate, run it back?',
+  lose: 'L 😩 — the timeline was undefeated, run it back?',
+  next: 'next 🔜',
+  skipHost: 'skip 🔀',
   deckEmpty: 'outta songs — longest timeline takes the W 🏆',
 } as const;
