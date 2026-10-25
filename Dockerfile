@@ -3,7 +3,10 @@
 # ---- deps + build stage ----
 FROM node:20-slim AS build
 WORKDIR /app
-ENV NODE_ENV=development
+# Build toolchain for better-sqlite3's node-gyp fallback (python3/make/g++).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
