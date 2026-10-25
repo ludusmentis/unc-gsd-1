@@ -26,7 +26,7 @@ Until then they remain NEEDS-HUMAN with the exact commands.
 ## 2. Remote reachability evidence (Cloudflare Tunnel → Unraid)
 
 Blocked on a human executing DEPLOY.md on Unraid: docker compose up with
-env-only secrets (SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET), cloudflared tunnel
+env-only secrets (Spotify client id/secret, set by env-var name only — values never recorded here), cloudflared tunnel
 to `http://unraid-host:3000`, hostname bind (`un.clord.org`) in Zero Trust,
 Spotify dashboard redirect `https://un.clord.org/api/spotify/callback`.
 
@@ -44,7 +44,7 @@ below stay NEEDS-HUMAN with exact retry commands.
 | Cloudflare tunnel hostname bound | NEEDS-HUMAN | `cloudflared tunnel route dns` / Zero Trust dashboard |
 | Spotify dashboard redirect URI registered | NEEDS-HUMAN | `https://un.clord.org/api/spotify/callback` |
 | `BASE_URL=https://un.clord.org node scripts/verify-deploy.mjs` → exit 0 | NEEDS-HUMAN | attempted 2026-10-25: exit 1, DNS unresolvable (gsd_exec d3a5512c-6712-420d-ba76-6a17b768b9ec); retry once stack is up |
-| `curl -sS https://un.clord.org/` → 200 | NEEDS-HUMAN | attempted 2026-10-25: `curl: (6) Could not resolve host` (gsd_exec 40f3ef53-b265-4414-a952-51b7b1163152); retry once stack is up |
+| `curl -sS https://un.clord.org/` → 200 | NEEDS-HUMAN | attempted 2026-10-25: `curl: (6) Could not resolve host` (gsd_exec 40f3ef53-b265-4414-a952-51b7b1163152); re-probed during T03 on 2026-10-25: still exit 6, HTTP 000 (gsd_exec 96c72f76-b6eb-49fa-ba73-9eb4b98b113b); retry once stack is up |
 | socket.io polling curl → 200 engine.io | NEEDS-HUMAN | raw output |
 | MEM022 host-playlist symptom check through tunnel | NEEDS-HUMAN | if `/api/spotify/select` shows empty rooms map → record finding, route to replan (S06 SQLite fallbacks in src/server/persist.ts should cover) |
 
@@ -115,7 +115,24 @@ sweeps (docs/s06-integration-evidence.md §2/§3) and paste log excerpts here
 | Audio cap fired (~30s) without forfeit | `audio_cap` | NEEDS-HUMAN | |
 | Speaker-loss wake broadcast handled | `wake_speaker` | NEEDS-HUMAN | |
 
-## 5. R018 supersession note
+## 6. Failure Modes (Q5)
+
+External dependencies of this evidence task (T03) and their failure paths:
+
+- **Network reachability of https://un.clord.org (Cloudflare Tunnel)**: re-probe via curl failed with exit 6 (DNS resolution failure), recorded verbatim in §2 with gsd_exec evidence ID — the failure path is explicit and rows stay NEEDS-HUMAN rather than being fabricated.
+- **Filesystem (results doc)**: the mechanical secret-hygiene check (`rg -q` for the secret env-var name) previously tripped on the env-var *name* in §2 prose; failure path = verify command exits 1. Fixed by rewording to prose ("Spotify client id/secret"); no secret value ever appeared.
+- **No human operator**: the entire on-device checklist is human-dependent; the recorded failure path is the NEEDS-HUMAN convention with the exact procedure per line (S04-T03/R012 precedent), not fabricated PASS rows.
+
+## 7. Load Profile (Q6)
+
+Omitted — this task records evidence on a single-room, human-driven instance; no runtime load dimension applies. (Known first-saturating resource at scale remains Spotify Web API rate limiting on playlist track fetch, per S06 evidence.)
+
+## 8. Negative Tests (Q7)
+
+- Secret hygiene negative check: `! rg -q "<secret env-var name>" docs/s07-real-device-uat-results.md` (name not spelled here to keep the check self-consistent) — asserts the secret env-var name (and thus any accidental value) is absent from the recorded evidence. Run 2026-10-25: no match, check exits 0 via negation. Post-fix re-run 2026-10-25: exit 0 (gsd_exec d5b1b4a8-22d0-451b-8a7d-188f3851bfd4). The first run (gsd_exec 3e164e5b-7b89-4171-9119-df9adf69dc03, exit 1) failed only because §8 itself quoted the env-var name; reworded, no secret value ever appeared.
+- Fabrication guard: every PASS row in this doc carries a gsd_exec evidence ID or verbatim log excerpt; on-device rows without a human verdict remain NEEDS-HUMAN by construction (§3), matching the S04-T03/R012 no-fabrication precedent.
+
+## 9. R018 supersession note
 
 R018 is superseded at slice closeout (complete-slice), covered by R022/D008;
 restart-recovery test evidence recorded in §1 supports the supersession notes
