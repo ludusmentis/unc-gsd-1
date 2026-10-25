@@ -1,0 +1,21 @@
+# Unraid deployment for nursehound (R011).
+# Secrets are passed via environment only — never baked into the image.
+services:
+  nursehound:
+    build: .
+    image: nursehound:latest
+    container_name: nursehound
+    restart: unless-stopped
+    ports:
+      # Override host side via PORT: "3123:3000" would map host 3123 -> container 3000.
+      - "${PORT:-3000}:3000"
+    environment:
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
+      # Default matches src/server/db.ts: ./data/nursehound.db (inside container).
+      - DB_PATH=${DB_PATH:-./data/nursehound.db}
+      - PORT=3000
+      - NODE_ENV=production
+    volumes:
+      # Bind-mount the SQLite data dir so room/game state survives rebuilds and is backup-friendly.
+      - ${DATA_DIR:-/mnt/user/appdata/nursehound/data}:/app/data

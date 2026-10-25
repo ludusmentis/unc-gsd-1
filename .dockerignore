@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.gitignore
+data
+tests
+.gsd
+.bg-shell
+.gsd-worktrees
+tsconfig.tsbuildinfo
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore

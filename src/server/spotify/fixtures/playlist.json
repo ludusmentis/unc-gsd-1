@@ -1,0 +1,21 @@
+{
+  "id": "fixture-playlist-001",
+  "name": "Nursehound Test Mix",
+  "tracks": {
+    "total": 12,
+    "items": [
+      { "track": { "id": "t-day-1", "uri": "spotify:track:t-day-1", "name": "Sunrise 1999", "duration_ms": 200000, "is_playable": true, "artists": [{ "name": "Alpha" }], "album": { "name": "A", "release_date": "1999-04-01", "release_date_precision": "day" } } },
+      { "track": { "id": "t-day-2", "uri": "spotify:track:t-day-2", "name": "Y2K Anthem", "duration_ms": 210000, "is_playable": true, "artists": [{ "name": "Bravo" }], "album": { "name": "B", "release_date": "2000-01-15", "release_date_precision": "day" } } },
+      { "track": { "id": "t-day-3", "uri": "spotify:track:t-day-3", "name": "Summer 2003", "duration_ms": 220000, "is_playable": true, "artists": [{ "name": "Charlie" }], "album": { "name": "C", "release_date": "2003-07-20", "release_date_precision": "day" } } },
+      { "track": { "id": "t-day-4", "uri": "spotify:track:t-day-4", "name": "Mid Decade", "duration_ms": 230000, "is_playable": true, "artists": [{ "name": "Delta" }], "album": { "name": "D", "release_date": "2005-11-05", "release_date_precision": "day" } } },
+      { "track": { "id": "t-day-5", "uri": "spotify:track:t-day-5", "name": "Phone Era", "duration_ms": 240000, "is_playable": true, "artists": [{ "name": "Echo" }], "album": { "name": "E", "release_date": "2010-03-09", "release_date_precision": "day" } } },
+      { "track": { "id": "t-day-6", "uri": "spotify:track:t-day-6", "name": "Stream Era", "duration_ms": 250000, "is_playable": true, "artists": [{ "name": "Foxtrot" }], "album": { "name": "F", "release_date": "2015-06-30", "release_date_precision": "day" } } },
+      { "track": { "id": "t-day-7", "uri": "spotify:track:t-day-7", "name": "Recent Hit", "duration_ms": 260000, "is_playable": true, "artists": [{ "name": "Golf" }], "album": { "name": "G", "release_date": "2021-09-24", "release_date_precision": "day" } } },
+      { "track": { "id": "t-day-8", "uri": "spotify:track:t-day-8", "name": "Very Recent", "duration_ms": 270000, "is_playable": true, "artists": [{ "name": "Hotel" }], "album": { "name": "H", "release_date": "2023-02-11", "release_date_precision": "day" } } },
+      { "track": { "id": "t-year-1", "uri": "spotify:track:t-year-1", "name": "Year Only (Old)", "duration_ms": 200000, "is_playable": true, "artists": [{ "name": "India" }], "album": { "name": "I", "release_date": "1965", "release_date_precision": "year" } } },
+      { "track": { "id": "t-month-1", "uri": "spotify:track:t-month-1", "name": "Month Only", "duration_ms": 200000, "is_playable": true, "artists": [{ "name": "Juliett" }], "album": { "name": "J", "release_date": "1990-05", "release_date_precision": "month" } } },
+      { "track": { "id": "t-local-1", "uri": "spotify:track:t-local-1", "name": "Local File", "duration_ms": 200000, "is_local": true, "is_playable": true, "artists": [{ "name": "Kilo" }], "album": { "name": "K", "release_date": "2001-01-01", "release_date_precision": "day" } } },
+      { "track": { "id": "t-unplayable-1", "uri": "spotify:track:t-unplayable-1", "name": "Unavailable Here", "duration_ms": 200000, "is_playable": false, "artists": [{ "name": "Lima" }], "album": { "name": "L", "release_date": "2008-08-08", "release_date_precision": "day" } } }
+    ]
+  }
+}

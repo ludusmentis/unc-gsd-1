@@ -68,3 +68,6 @@ coverage/
 .cache/
 tmp/
 *.tsbuildinfo
+
+# runtime sqlite data (default DB_PATH volume target)
+data/

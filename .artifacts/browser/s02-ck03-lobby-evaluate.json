@@ -1,0 +1,17 @@
+{
+  "check": "s02-ck03",
+  "attempt": 2,
+  "capturedAt": "2026-10-25T12:35:03Z",
+  "browser_evaluate": {
+    "url": "http://localhost:3000/lobby",
+    "h1": "C99ZY",
+    "body_excerpt": "ROOM CODE\n\nC99ZY\n\n1/8 in · need 2+ to start\n\nUAT T03 Host 👑\n\nno playlist yet\n\nhost: pick one in the lobby\n\nwaiting for players…",
+    "stuckOnFindingYourRoom": false
+  },
+  "server_log_corroboration": [
+    {"event": "room_created", "room": "C99ZY", "host": "p4"},
+    {"event": "socket_disconnected", "room": "C99ZY", "player": "p4"},
+    {"event": "session_rebound", "room": "C99ZY", "player": "p4"}
+  ],
+  "conclusion": "Step 1a PASS against fix 11ba86a: host create room -> /lobby resolves with room code C99ZY and roster after the /host->/lobby remount; session_rebound on the live server; zero rejections. Supersedes attempt-1 FAIL (invalid_token on ping_state)."
+}
