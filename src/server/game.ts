@@ -9,6 +9,8 @@ import {
   deleteGameState,
   saveRoom,
   deleteHostBinding,
+  loadHostBinding,
+  roomExistsInDb,
   type PersistedGame,
 } from './persist';
 import { restoreHostSessions, getValidAccessToken } from './spotify/auth';
@@ -132,6 +134,24 @@ function logGame(roomCode: string, event: string, extra: Record<string, unknown>
   console.log(JSON.stringify({ ts: new Date().toISOString(), scope: 'game', room: roomCode, event, ...extra }));
 }
 
+/**
+ * MEM022 route-module-split fallback: the in-memory bindings Map only has
+ * entries registered by THIS module instance. When the binding was
+ * registered by the route instance (POST /api/spotify/select), it lives
+ * only in host_bindings — fall back to SQLite and cache it in memory so
+ * later lookups skip the DB. Never logs the binding (contains sessionId).
+ */
+function bindingWithDbFallback(roomCode: string): HostBinding | null {
+  const mem = bindings.get(roomCode);
+  if (mem) return mem;
+  const fromDb = loadHostBinding(roomCode);
+  if (fromDb) {
+    bindings.set(roomCode, fromDb);
+    logGame(roomCode, 'binding_db_fallback_hit');
+  }
+  return fromDb;
+}
+
 /** Serialize a GameRuntime for SQLite (persist.ts write-through). */
 function snapshotGame(game: GameRuntime): PersistedGame {
   return {
@@ -161,7 +181,7 @@ function persistGameState(roomCode: string): void {
 async function ensurePlayback(roomCode: string, game: GameRuntime): Promise<PlaybackService | null> {
   if (game.playback) return game.playback;
   if (!activeIo) return null;
-  const binding = bindings.get(roomCode);
+  const binding = bindingWithDbFallback(roomCode);
   if (!binding) return null;
   try {
     const accessToken = await deps.getAccessToken(binding.sessionId);
@@ -185,7 +205,11 @@ export async function registerHostPlaylist(
   opts: { sessionId: string; playlistId: string; playlistName: string; speakerName: string },
 ): Promise<{ ok: true; eligibleCount: number } | { ok: false; error: string; recovery?: string }> {
   const room = getRoom(roomCode);
-  if (!room) return { ok: false, error: 'no room with that code', recovery: 'check the code' };
+  if (!room && !roomExistsInDb(roomCode)) {
+    // MEM022 route-module-split: the route instance's rooms Map is empty,
+    // but the WS instance persisted the room — a DB hit means it's real.
+    return { ok: false, error: 'no room with that code', recovery: 'check the code' };
+  }
   try {
     const accessToken = await deps.getAccessToken(opts.sessionId);
     const tracks = await deps.fetchTracks(accessToken, opts.playlistId);
@@ -226,7 +250,7 @@ export function getHostBinding(roomCode: string): { eligibleCount: number; playl
 export async function startGame(roomCode: string, io: IOServer): Promise<void> {
   const room = getRoom(roomCode);
   if (!room || room.status !== 'locked') return;
-  const binding = bindings.get(roomCode);
+  const binding = bindingWithDbFallback(roomCode);
   if (!binding || !binding.tracks) {
     // Roster stays locked (late joins stay rejected); host retries start
     // after picking a playlist in the lobby.

@@ -165,6 +165,39 @@ export function deleteGameState(roomCode: string): void {
   }
 }
 
+/** Route-module-split lookup (MEM022): does this room exist in SQLite?
+ * Route-handler module instances don't share the WS layer's in-memory
+ * rooms Map, but every createRoom persists to SQLite — a hit here means
+ * the room is real and lives in the other module instance. */
+export function roomExistsInDb(code: string): boolean {
+  const db = getDb();
+  if (!db) return false;
+  try {
+    const row = db.prepare('SELECT 1 FROM rooms WHERE code = ?').get(code);
+    return row !== undefined;
+  } catch (err) {
+    logPersist('room_exists_failed', { room: code, detail: String(err).slice(0, 120) });
+    return false;
+  }
+}
+
+/** Route-module-split lookup (MEM022): load a host binding persisted by
+ * the route instance so the WS instance can consume it without a restart.
+ * binding_json contains sessionId — never log the parsed value. */
+export function loadHostBinding(roomCode: string): HostBinding | null {
+  const db = getDb();
+  if (!db) return null;
+  try {
+    const row = db.prepare('SELECT binding_json FROM host_bindings WHERE room_code = ?')
+      .get(roomCode) as { binding_json: string } | undefined;
+    if (!row) return null;
+    return JSON.parse(row.binding_json) as HostBinding;
+  } catch (err) {
+    logPersist('load_host_binding_failed', { room: roomCode, detail: String(err).slice(0, 120) });
+    return null;
+  }
+}
+
 // ---- boot restore ----
 
 export interface BootState {
