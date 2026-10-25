@@ -30,13 +30,21 @@ env-only secrets (SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET), cloudflared tunnel
 to `http://unraid-host:3000`, hostname bind (`un.clord.org`) in Zero Trust,
 Spotify dashboard redirect `https://un.clord.org/api/spotify/callback`.
 
+Executor probe on 2026-10-25 confirmed the stack is not yet up:
+`curl -sS https://un.clord.org/` failed with `curl: (6) Could not resolve
+host: un.clord.org` (gsd_exec 40f3ef53-b265-4414-a952-51b7b1163152), and
+`BASE_URL=https://un.clord.org node scripts/verify-deploy.mjs` exited 1 after
+printing `VERIFY-OK: target https://un.clord.org (remote)` and failing at the
+HTTP root check (gsd_exec d3a5512c-6712-420d-ba76-6a17b768b9ec). All rows
+below stay NEEDS-HUMAN with exact retry commands.
+
 | Step | Result | Evidence |
 |---|---|---|
 | docker compose stack up on Unraid | NEEDS-HUMAN | per DEPLOY.md; confirm `docker logs nursehound` shows listening event |
 | Cloudflare tunnel hostname bound | NEEDS-HUMAN | `cloudflared tunnel route dns` / Zero Trust dashboard |
 | Spotify dashboard redirect URI registered | NEEDS-HUMAN | `https://un.clord.org/api/spotify/callback` |
-| `BASE_URL=https://un.clord.org node scripts/verify-deploy.mjs` → exit 0 | NEEDS-HUMAN | gsd_exec evidence ID + output pasted here |
-| `curl -sS https://un.clord.org/` → 200 | NEEDS-HUMAN | raw output |
+| `BASE_URL=https://un.clord.org node scripts/verify-deploy.mjs` → exit 0 | NEEDS-HUMAN | attempted 2026-10-25: exit 1, DNS unresolvable (gsd_exec d3a5512c-6712-420d-ba76-6a17b768b9ec); retry once stack is up |
+| `curl -sS https://un.clord.org/` → 200 | NEEDS-HUMAN | attempted 2026-10-25: `curl: (6) Could not resolve host` (gsd_exec 40f3ef53-b265-4414-a952-51b7b1163152); retry once stack is up |
 | socket.io polling curl → 200 engine.io | NEEDS-HUMAN | raw output |
 | MEM022 host-playlist symptom check through tunnel | NEEDS-HUMAN | if `/api/spotify/select` shows empty rooms map → record finding, route to replan (S06 SQLite fallbacks in src/server/persist.ts should cover) |
 
