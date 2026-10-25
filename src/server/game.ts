@@ -68,6 +68,7 @@ interface GameRuntime {
   awaitingNext: string | null; // playerId parked on the handover screen
   awaitingNextAt: number | null; // epoch ms — S03 nudge timer re-arm on restore
   nudgeTimer: ReturnType<typeof setTimeout> | null;
+  speakerPaused: boolean; // S03-T03: speaker lost mid-turn — one-tap wake recovers
 }
 
 /** Idle nudge: after this long on the handover screen the server pings the
@@ -141,6 +142,7 @@ function snapshotGame(game: GameRuntime): PersistedGame {
     turnIdx: game.turnIdx,
     awaitingNext: game.awaitingNext,
     awaitingNextAt: game.awaitingNextAt,
+    speakerPaused: game.speakerPaused,
     deck: game.dealer.remainingTracks(),
     current: game.current ? { playerId: game.current.playerId, track: { ...game.current.track } } : null,
   };
@@ -290,6 +292,7 @@ export async function startGame(roomCode: string, io: IOServer): Promise<void> {
     awaitingNext: null,
     awaitingNextAt: null,
     nudgeTimer: null,
+    speakerPaused: false,
   });
   persistGameState(roomCode);
   logGame(roomCode, 'game_started', { players: rosterSize, deck: result.eligibleCount });
@@ -326,6 +329,7 @@ export function getGameStateSync(roomCode: string): GameStateSync | null {
     lines,
     scores,
     awaitingNext: game.awaitingNext,
+    speakerPaused: game.speakerPaused,
   };
 }
 
@@ -352,6 +356,13 @@ function relayPlayback(io: IOServer, roomCode: string, e: PlaybackEvent) {
     trackId: 'trackId' in e ? e.trackId : undefined,
     deviceId: 'deviceId' in e ? e.deviceId : undefined,
   });
+  // S03-T03 (R008): a wake_speaker mid-turn (speaker dropped) pauses the
+  // game — flag + one-tap wake copy, turn kept. playability `error` events
+  // never pause: the deal path silently replaces those tracks (R013).
+  if (e.type === 'wake_speaker') {
+    const game = games.get(roomCode);
+    if (game?.current) setSpeakerPaused(roomCode, io, game);
+  }
 }
 
 // ---- handover: the awaiting_next phase ----
@@ -403,6 +414,93 @@ function endGame(roomCode: string, io: IOServer, winnerIds: string[], reason: 'f
   broadcastSync(roomCode, io);
 }
 
+/** Broadcast the room's anchors map (song_dealt payload). */
+function anchorsOf(game: GameRuntime): Record<string, TrackSummary> {
+  const anchorsObj: Record<string, TrackSummary> = {};
+  for (const [pid, a] of game.anchors) anchorsObj[pid] = a;
+  return anchorsObj;
+}
+
+/** Deck-empty winners over the current lines (longest line, ties shared). */
+function deckEmptyWinnerIds(game: GameRuntime): string[] {
+  const scoringLines = new Map<string, readonly ScoringTrack[]>();
+  for (const [pid, line] of game.lines) {
+    scoringLines.set(pid, line.map((e) => ({ trackId: e.trackId, releaseDate: e.summary.releaseDate })));
+  }
+  return deckEmptyWinners(scoringLines);
+}
+
+/**
+ * S03-T03 speaker-loss pause (R008): set the flag, broadcast game_error with
+ * COPY.wakeSpeaker (one-tap recovery) and a full state_sync so clients raise
+ * the paused banner. The turn is NOT consumed — `current` stays, turnIdx
+ * unchanged; host wake re-plays the CURRENT track. Idempotent: a
+ * wake_speaker relay that already flipped the flag does not double-broadcast.
+ */
+function setSpeakerPaused(roomCode: string, io: IOServer, game: GameRuntime): void {
+  if (game.speakerPaused) return;
+  game.speakerPaused = true;
+  logGame(roomCode, 'speaker_paused', { player: game.current?.playerId ?? null });
+  persistGameState(roomCode);
+  roomEvent(io, roomCode, { type: 'game_error', ...COPY.wakeSpeaker });
+  broadcastSync(roomCode, io);
+}
+
+/**
+ * Play the CURRENT deal on the host speaker, handling both S03-T03
+ * resilience paths:
+ * - `no_active_device` → speaker-loss pause (R008): flag + wake copy, turn kept.
+ * - playability `error` → silent replacement (R013): reject the track so it
+ *   never returns, re-deal to the SAME player (no second turnIdx increment),
+ *   and if the deck exhausts mid-replacement fall through to the deck-empty
+ *   winners path with COPY.deckEmpty. Players never get an event for the
+ *   rejected track — the next `song_dealt` simply supersedes.
+ */
+async function playCurrentDeal(roomCode: string, io: IOServer, game: GameRuntime): Promise<void> {
+  let cur = game.current;
+  if (!cur) return;
+  for (;;) {
+    const playback = await ensurePlayback(roomCode, game);
+    if (!playback) return;
+    const res = await playback.playDeal(cur.track);
+    if (res.ok) {
+      // Clear any pause left over from a previous deal attempt on this turn.
+      if (game.speakerPaused) {
+        game.speakerPaused = false;
+        persistGameState(roomCode);
+        broadcastSync(roomCode, io);
+      }
+      return;
+    }
+    if (res.reason === 'no_active_device') {
+      // Speaker loss: pause, keep the turn (R008) — host wake re-plays it.
+      setSpeakerPaused(roomCode, io, game);
+      return;
+    }
+    // Playability error: silent mid-deal replacement (R013).
+    game.dealer.reject(cur.track);
+    logGame(roomCode, 'track_rejected', { trackId: cur.track.id, player: cur.playerId });
+    const next = game.dealer.deal();
+    if (!next) {
+      // Deck exhausted during replacement: deck-empty winners path.
+      const winnerIds = deckEmptyWinnerIds(game);
+      logGame(roomCode, 'deck_exhausted', { winners: winnerIds, via: 'replacement' });
+      endGame(roomCode, io, winnerIds, 'deck_empty', COPY.deckEmpty);
+      return;
+    }
+    game.current = { playerId: cur.playerId, track: next };
+    roomEvent(io, roomCode, {
+      type: 'song_dealt',
+      track: toTrackSummary(next),
+      anchors: anchorsOf(game),
+    } satisfies ServerEvent);
+    logGame(roomCode, 'song_dealt', { player: cur.playerId, trackId: next.id, replaced: cur.track.id });
+    persistGameState(roomCode);
+    broadcastSync(roomCode, io);
+    cur = game.current;
+  }
+}
+
 /**
  * Deal the next song to the next player in rotation and start playback.
  * On deck exhaustion compute the winner(s) via the scoring helpers
@@ -415,11 +513,7 @@ export async function dealNext(roomCode: string, io: IOServer): Promise<void> {
   const track = game.dealer.deal();
   if (!track) {
     // Deck empty: longest-line winner(s), ties shared.
-    const scoringLines = new Map<string, readonly ScoringTrack[]>();
-    for (const [pid, line] of game.lines) {
-      scoringLines.set(pid, line.map((e) => ({ trackId: e.trackId, releaseDate: e.summary.releaseDate })));
-    }
-    const winnerIds = deckEmptyWinners(scoringLines);
+    const winnerIds = deckEmptyWinnerIds(game);
     logGame(roomCode, 'deck_exhausted', { winners: winnerIds });
     endGame(roomCode, io, winnerIds, 'deck_empty', COPY.deckEmpty);
     return;
@@ -427,18 +521,15 @@ export async function dealNext(roomCode: string, io: IOServer): Promise<void> {
   const playerId = game.turnOrder[game.turnIdx % game.turnOrder.length];
   game.turnIdx++;
   game.current = { playerId, track };
-  const anchorsObj: Record<string, TrackSummary> = {};
-  for (const [pid, a] of game.anchors) anchorsObj[pid] = a;
   roomEvent(io, roomCode, {
     type: 'song_dealt',
     track: toTrackSummary(track),
-    anchors: anchorsObj,
+    anchors: anchorsOf(game),
   } satisfies ServerEvent);
   logGame(roomCode, 'song_dealt', { player: playerId, trackId: track.id });
   persistGameState(roomCode);
   broadcastSync(roomCode, io);
-  const playback = await ensurePlayback(roomCode, game);
-  if (playback) await playback.playDeal(track);
+  await playCurrentDeal(roomCode, io, game);
 }
 
 /**
@@ -539,7 +630,9 @@ export async function onSkipTurn(roomCode: string, io: IOServer): Promise<void> 
 
 /**
  * One-tap wake path (host): transfer playback to the picked speaker, then
- * retry the pending deal.
+ * retry the pending deal. S03-T03: clears the speakerPaused flag on
+ * success, re-plays the CURRENT unplaced track (no turn consumed), and
+ * broadcasts playing + state_sync so clients clear the paused banner.
  */
 export async function wakeSpeaker(roomCode: string, io: IOServer): Promise<void> {
   const game = games.get(roomCode);
@@ -547,10 +640,15 @@ export async function wakeSpeaker(roomCode: string, io: IOServer): Promise<void>
   const playback = await ensurePlayback(roomCode, game);
   if (!playback) return;
   const woke = await playback.wake();
-  if (woke.ok && game.current) {
-    logGame(roomCode, 'wake_retry');
-    await playback.playDeal(game.current.track);
+  if (!woke.ok) return; // still sleepy — flag stays, copy already relayed
+  if (!game.current) {
+    game.speakerPaused = false;
+    persistGameState(roomCode);
+    broadcastSync(roomCode, io);
+    return;
   }
+  logGame(roomCode, 'wake_retry');
+  await playCurrentDeal(roomCode, io, game);
 }
 
 // ---- S03 boot restore (R022/D008/MEM009) ----
@@ -598,6 +696,7 @@ export function restoreFromDb(io: IOServer): void {
       awaitingNext: g.state.awaitingNext,
       awaitingNextAt: g.state.awaitingNextAt,
       nudgeTimer: null,
+      speakerPaused: g.state.speakerPaused ?? false,
     };
     // Re-arm the nudge timer from the persisted timestamp (fires when the
     // original NUDGE_AFTER_MS window elapses; never restarts the full window).

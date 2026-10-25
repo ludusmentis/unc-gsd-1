@@ -33,6 +33,11 @@ export const COPY = {
     error: 'still sleepy, give it a sec and try again',
     recovery: 'host: tap wake again',
   },
+  speakerPaused: {
+    error: 'speaker dipped — the game\'s paused rn',
+    recovery: 'host: tap wake to run it back',
+  },
+  speakerResumed: 'speaker\'s back — run it back 🔊',
   playbackFail: {
     error: 'speaker said no',
     recovery: 'host: try starting again',

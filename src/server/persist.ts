@@ -25,6 +25,7 @@ export interface PersistedGame {
   turnIdx: number;
   awaitingNext: string | null;
   awaitingNextAt: number | null; // epoch ms — to re-arm the nudge timer
+  speakerPaused: boolean; // S03-T03: speaker lost mid-turn — survives restart
   deck: unknown[]; // remaining deck in order (no shuffle on restore)
   current: { playerId: string; track: unknown } | null;
 }

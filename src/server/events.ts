@@ -66,6 +66,8 @@ export interface GameStateSync {
   lines: Record<string, LineEntry[]>;
   scores: Record<string, number>;
   awaitingNext: string | null;
+  /** S03-T03: true when the host speaker was lost mid-turn — one-tap wake recovers. */
+  speakerPaused: boolean;
 }
 
 // ---- server -> client events ----

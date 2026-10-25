@@ -139,6 +139,14 @@ export default function GamePage() {
   const myTurn = turnPlayerId !== null && turnPlayerId === myId;
   const awaitingNext = snap?.awaitingNext ?? null;
   const scores = snap?.scores ?? {};
+  const speakerPaused = snap?.speakerPaused ?? false;
+
+  // S03-T03: toast when the speaker comes back (paused -> resumed via snapshot).
+  const prevPaused = useRef(false);
+  useEffect(() => {
+    if (prevPaused.current && !speakerPaused) toast(COPY.speakerResumed);
+    prevPaused.current = speakerPaused;
+  }, [speakerPaused]);
 
   const myEntries: ServerLineEntry[] = snap?.lines?.[myId] ?? (anchor ? [{ trackId: anchor.id, summary: anchor }] : []);
   const mySlots: DisplaySlot[] = useMemo(() => entriesToSlots(myEntries), [JSON.stringify(myEntries)]);
@@ -164,7 +172,7 @@ export default function GamePage() {
     sendAction(socketRef.current, placeSongEnvelope(token, track.id, dropZoneIndex));
   };
 
-  const send = (action: { type: 'next_turn' } | { type: 'skip_turn' } | { type: 'ping_state' }) => {
+  const send = (action: { type: 'next_turn' } | { type: 'skip_turn' } | { type: 'ping_state' } | { type: 'wake_speaker' }) => {
     if (!token || !socketRef.current) {
       setErr('session lost — rejoin the room with the code');
       return;
@@ -222,6 +230,20 @@ export default function GamePage() {
       </section>
 
       {quip && <p style={styles.quip} aria-label="commentary">{quip}</p>}
+
+      {/* S03-T03 (R008): speaker lost mid-turn — paused banner + host one-tap wake */}
+      {speakerPaused && (
+        <section aria-label="speaker paused" style={styles.paused}>
+          <p style={styles.p}>{COPY.speakerPaused.error} — {COPY.speakerPaused.recovery}</p>
+          {isHost ? (
+            <button style={styles.cta} onClick={() => send({ type: 'wake_speaker' })}>
+              {COPY.wakeSpeaker.recovery}
+            </button>
+          ) : (
+            <p style={styles.small}>{COPY.speakerPaused.recovery}</p>
+          )}
+        </section>
+      )}
 
       {/* active player + handover state */}
       {awaitingNext ? (
@@ -327,6 +349,7 @@ const styles: Record<string, React.CSSProperties> = {
   li: { display: 'flex', justifyContent: 'space-between', fontSize: 14, background: '#151a24', borderRadius: 10, padding: '8px 12px' },
   score: { opacity: 0.7 },
   handover: { background: '#1c212c', borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 },
+  paused: { background: '#231325', borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, border: '1px solid #b0455f' },
   row: { display: 'flex', gap: 10 },
   cta: {
     background: '#1db954', color: '#04140a', border: 'none', borderRadius: 12,
