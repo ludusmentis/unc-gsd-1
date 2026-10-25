@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Wireframes — Song Timeline Party Game</title>
+<style>
+  body{background:#111;color:#eee;font-family:-apple-system,sans-serif;padding:24px}
+  h1{font-size:20px} h2{margin:40px 0 10px;color:#8af;font-size:16px;text-transform:uppercase;letter-spacing:1px}
+  .row{display:flex;flex-wrap:wrap;gap:24px}
+  .phone{width:280px;background:#1c1c1e;border-radius:32px;border:6px solid #333;padding:14px;box-shadow:0 8px 30px #000a}
+  .phone .tag{font-size:11px;color:#888;text-align:center;margin-bottom:8px}
+  .screen{background:#000;border-radius:20px;overflow:hidden;height:520px;display:flex;flex-direction:column}
+  .status{padding:10px 16px;font-size:10px;color:#888;text-align:center}
+  .content{flex:1;overflow:hidden;padding:12px;display:flex;flex-direction:column;gap:10px}
+  .hero{font-size:24px;font-weight:800;text-align:center;line-height:1.2}
+  .sub{font-size:12px;color:#aaa;text-align:center}
+  .btn{background:linear-gradient(135deg,#a855f7,#ff5c8a);color:#fff;border-radius:24px;padding:12px;text-align:center;font-weight:700;font-size:14px}
+  .btn.ghost{background:#2c2c2e;color:#fff}
+  .btn.small{padding:8px;font-size:12px}
+  .input{background:#2c2c2e;border-radius:12px;padding:12px;font-size:16px;text-align:center;color:#fff;letter-spacing:4px}
+  .hint{font-size:10px;color:#777;text-align:center}
+  .list-item{background:#2c2c2e;border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;font-size:13px}
+  .avatar{width:36px;height:36px;border-radius:50%;background:#555;display:inline-flex;align-items:center;justify-content:center;font-weight:800}
+  .players{display:flex;flex-direction:column;gap:8px}
+  .prow{display:flex;align-items:center;gap:10px;font-size:13px}
+  .now{font-size:10px;color:#a855f7;text-transform:uppercase;letter-spacing:1px;text-align:center}
+  .turn-card{background:#2c2c2e;border-radius:14px;padding:10px;display:flex;gap:10px;align-items:center}
+  .art{width:44px;height:44px;border-radius:8px;background:#a855f7;flex-shrink:0}
+  .meta b{font-size:13px;display:block} .meta span{font-size:11px;color:#888}
+  .speaker{font-size:11px;color:#a855f7}
+  .line{display:flex;flex-direction:column;gap:6px}
+  .slot{border:1px dashed #777;border-radius:10px;height:20px}
+  .song{background:#2c2c2e;border-radius:10px;padding:7px 10px;font-size:12px;align-items:center;display:flex;gap:8px}
+  .song .thumb{width:26px;height:26px;border-radius:6px;background:linear-gradient(135deg,#a855f7,#ff5c8a);flex-shrink:0}
+  .song .txt{flex:1}
+  .song .yr{color:#a855f7;font-weight:700}
+  .song.new{outline:2px solid #ffd60a}
+  .song.guess{outline:2px dashed #fff}
+  .scores{display:flex;flex-direction:column;gap:6px}
+  .sc{display:flex;justify-content:space-between;font-size:13px;background:#2c2c2e;border-radius:10px;padding:8px 12px}
+  .sc .pts{color:#a855f7;font-weight:800}
+  .win{font-size:40px;text-align:center}
+  .reveal{font-size:12px;background:#2c2c2e;border-radius:12px;padding:10px;text-align:center}
+  .foot{padding:10px;display:flex;gap:8px}
+  .pill{flex:1;background:#2c2c2e;border-radius:16px;text-align:center;font-size:11px;padding:6px;color:#aaa}
+  .pill.on{background:linear-gradient(135deg,#a855f7,#ff5c8a);color:#fff;font-weight:700}
+</style>
+</head>
+<body>
+<h1>📱 Wireframes — Song Timeline Party Game</h1>
+<p style="color:#888;font-size:13px">Host flow (green accents) · Player flow. Voice: Gen Z, one sentence + one button.</p>
+
+<h2>Host · 1 — Login</h2>
+<div class="row">
+<div class="phone"><div class="tag">HOST · first visit</div><div class="screen"><div class="status">📶 un.clord.org</div><div class="content">
+  <div class="hero">🎧 song sorter</div>
+  <div class="sub">put songs in order. don't fumble the bag.</div>
+  <div style="flex:1"></div>
+  <div class="btn">log in w/ Spotify</div>
+  <div class="hint">premium only, sry 💀</div>
+</div></div></div>
+
+<div class="phone"><div class="tag">HOST · pick playlist</div><div class="screen"><div class="status">✓ logged in as host</div><div class="content">
+  <div class="now">pick ur playlist bestie</div>
+  <div class="list-item"><span>🎧 Throwback Bangers</span><span>82 songs</span></div>
+  <div class="list-item"><span>🎧 Chill Mix</span><span>150 songs</span></div>
+  <div class="list-item"><span>🎧 2000s Nostalgia</span><span>64 songs</span></div>
+  <div style="flex:1"></div>
+  <div class="hint">~60+ songs = a proper game</div>
+</div></div></div>
+
+<div class="phone"><div class="tag">HOST · pick speaker</div><div class="screen"><div class="status">✓ Throwback Bangers</div><div class="content">
+  <div class="now">who's the speaker?</div>
+  <div class="list-item"><span>🔊 Living Room Sonos</span><span class="speaker">active</span></div>
+  <div class="list-item"><span>💻 orlorenz's Mac</span><span></span></div>
+  <div style="flex:1"></div>
+  <div class="btn">create room 🔥</div>
+</div></div></div>
+</div>
+
+<h2>Host · 2 — Lobby</h2>
+<div class="row">
+<div class="phone"><div class="tag">HOST · lobby</div><div class="screen"><div class="status">room code</div><div class="content">
+  <div class="hero" style="font-size:34px;letter-spacing:8px">KX4P</div>
+  <div class="sub">share this w/ the group 📢</div>
+  <div class="players">
+    <div class="prow"><div class="avatar">A</div>orlorenz <span style="color:#a855f7;font-size:10px">host</span></div>
+    <div class="prow"><div class="avatar">M</div>mira</div>
+    <div class="prow"><div class="avatar">J</div>jayjay</div>
+  </div>
+  <div class="hint">2–8 players · roster locks at start</div>
+  <div style="flex:1"></div>
+  <div class="btn">let's gooo 🚀</div>
+</div></div></div>
+
+<div class="phone"><div class="tag">HOST · in game</div><div class="screen"><div class="status">round 6 · 41 songs left in the deck</div><div class="content">
+  <div class="now">mira's turn — everyone watch 👀</div>
+  <div class="turn-card"><div class="art"></div><div class="meta"><b>Mr. Brightside</b><span>The Killers</span></div><div class="speaker">🔊 playing</div></div>
+  <div class="hint">no timer. chill. but like… go.</div>
+  <div class="scores">
+    <div class="sc"><span>orlorenz</span><span class="pts">7</span></div>
+    <div class="sc"><span>mira</span><span class="pts">5</span></div>
+    <div class="sc"><span>jayjay</span><span class="pts">3</span></div>
+  </div>
+  <div style="flex:1"></div>
+  <div class="btn ghost small">skip turn (host only)</div>
+</div></div></div>
+
+<h2>Player · 1 — Join</h2>
+<div class="phone"><div class="tag">PLAYER · join</div><div class="screen"><div class="status">📶 un.clord.org</div><div class="content">
+  <div class="hero">ur in? drop the code 👇</div>
+  <div class="input">K X 4 P</div>
+  <div class="input" style="letter-spacing:0;font-size:14px">whats ur name?</div>
+  <div style="flex:1"></div>
+  <div class="btn">i'm in 🎉</div>
+</div></div></div>
+
+<div class="phone"><div class="tag">PLAYER · lobby</div><div class="screen"><div class="status">room KX4P</div><div class="content">
+  <div class="hero">locked in ✅</div>
+  <div class="sub">waitin on the host…</div>
+  <div class="players">
+    <div class="prow"><div class="avatar">A</div>orlorenz</div>
+    <div class="prow"><div class="avatar">M</div>mira</div>
+    <div class="prow"><div class="avatar">J</div>jayjay <span style="color:#a855f7;font-size:10px">you</span></div>
+  </div>
+  <div style="flex:1"></div>
+  <div class="hint">vibes loading… 🔊</div>
+</div></div></div>
+</div>
+
+<h2>Player · 2 — Your Turn (the core screen)</h2>
+<div class="row">
+<div class="phone"><div class="tag">PLAYER · active turn</div><div class="screen"><div class="status">ur turn · round 6</div><div class="content">
+  <div class="turn-card"><div class="art"></div><div class="meta"><b>Mr. Brightside</b><span>The Killers</span></div><div class="speaker">🔊 speaker</div></div>
+  <div class="hint">where does it go? tap a slot ⬇️</div>
+  <div class="line">
+    <div class="slot"></div>
+    <div class="song"><div class="thumb"></div><div class="txt">Billie Jean — MJ</div><span class="yr">1983</span></div>
+    <div class="slot"></div>
+    <div class="song"><div class="thumb"></div><div class="txt">Wannabe — Spice Girls</div><span class="yr">1996</span></div>
+    <div class="slot" style="height:34px;border-color:#a855f7;background:linear-gradient(135deg,#a855f733,#ff5c8a33)">⬇️ tap me ⬇️</div>
+    <div class="song"><div class="thumb"></div><div class="txt">Hey Ya! — OutKast</div><span class="yr">2003</span></div>
+    <div class="slot"></div>
+  </div>
+  <div class="hint">years on ur placed songs stay visible · the new song shows its year after u drop it</div>
+</div></div></div>
+
+<div class="phone"><div class="tag">PLAYER · watching someone else</div><div class="screen"><div class="status">mira's turn</div><div class="content">
+  <div class="now">👀 mira is placing — drag & drop on her end</div>
+  <div class="turn-card"><div class="art"></div><div class="meta"><b>Smells Like Teen Spirit</b><span>Nirvana</span></div></div>
+  <div class="hero" style="font-size:18px">"bro is thinking hard 🤔"</div>
+  <div class="hint">random from ~50 — different every wait</div>
+  <div class="scores">
+    <div class="sc"><span>mira</span><span class="pts">5</span></div>
+    <div class="sc"><span>orlorenz</span><span class="pts">7</span></div>
+  </div>
+</div></div></div>
+
+<div class="phone"><div class="tag">PLAYER · forfeit reveal</div><div class="screen"><div class="status">mira fumbled 💀</div><div class="content">
+  <div class="reveal">that's rough 🫠 — it goes <b>here</b> ⬇️ (between these two)</div>
+  <div class="line">
+    <div class="song"><div class="thumb"></div><div class="txt">Billie Jean — MJ</div><span class="yr">1983</span></div>
+    <div class="song new"><span>Smells Like Teen Spirit</span><span class="yr">1991</span></div>
+    <div class="song"><div class="thumb"></div><div class="txt">Wannabe — Spice Girls</div><span class="yr">1996</span></div>
+  </div>
+  <div class="hint">song's gone. memory stays. 🧠</div>
+  <div style="flex:1"></div>
+  <div class="btn">rip. next player 🔜</div>
+</div></div></div>
+</div>
+
+<h2>Player · 3 — End</h2>
+<div class="row">
+<div class="phone"><div class="tag">PLAYER · winner screen</div><div class="screen"><div class="status">game over</div><div class="content">
+  <div class="win">🏆</div>
+  <div class="hero">orlorenz<br>W, gg 🎉</div>
+  <div class="sub">first to 10. absolutely him.</div>
+  <div class="scores">
+    <div class="sc"><span>orlorenz</span><span class="pts">10</span></div>
+    <div class="sc"><span>mira</span><span class="pts">6</span></div>
+    <div class="sc"><span>jayjay</span><span class="pts">4</span></div>
+  </div>
+  <div style="flex:1"></div>
+  <div class="btn">run it back 🔄</div>
+</div></div></div>
+
+<div class="phone"><div class="tag">PLAYER · rejoin after drop</div><div class="screen"><div class="status">📶 reconnected</div><div class="content">
+  <div class="hero">welcome back 🫡</div>
+  <div class="sub">ur line + score are safe. obvi.</div>
+  <div class="line">
+    <div class="song"><div class="thumb"></div><div class="txt">Billie Jean — MJ</div><span class="yr">1983</span></div>
+    <div class="song"><div class="thumb"></div><div class="txt">Wannabe — Spice Girls</div><span class="yr">1996</span></div>
+    <div class="song"><div class="thumb"></div><div class="txt">Hey Ya! — OutKast</div><span class="yr">2003</span></div>
+  </div>
+  <div style="flex:1"></div>
+  <div class="btn">keep cooking 🔥</div>
+</div></div></div>
+
+<div class="phone"><div class="tag">ALL · speaker lost</div><div class="screen"><div class="status">⏸ paused</div><div class="content">
+  <div class="hero">🔊💀</div>
+  <div class="hero" style="font-size:18px">Spotify's being moody</div>
+  <div class="sub">hit this to fix it — game's paused, no turn lost</div>
+  <div style="flex:1"></div>
+  <div class="btn">reconnect 🔁</div>
+</div></div></div>
+</div>
+
+</body>
+</html>
