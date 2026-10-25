@@ -94,6 +94,62 @@ describe('session authorization (R020)', () => {
 });
 
 describe('room protocol over WebSocket', () => {
+  it('rejoin: a stored token re-binds to a new socket after page navigation (S02 fix)', async () => {
+    const host = await connect();
+    const created = once(host) as Promise<any>;
+    emit(host, { token: '', action: { type: 'create_room', name: 'Host' } });
+    const createdEv = await created;
+    const code = createdEv.room.code as string;
+    const token = createdEv.token as string;
+
+    // New page (lobby/game) mounts a fresh socket and pings with the stored
+       // token. Before the fix this was rejected invalid_token (token bound to
+    // the creating socket id, tryRejoin never wired).
+    const page2 = await connect();
+    const lobbyOrSync = new Promise<any>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('timeout waiting for lobby')), 5000);
+      page2.on('event', (e: ServerEvent) => {
+        if (e.type === 'lobby' || e.type === 'state_sync') { clearTimeout(t); resolve(e); }
+      });
+    });
+    emit(page2, { token, action: { type: 'ping_state' } });
+    const e = await lobbyOrSync;
+    expect(e.type === 'lobby' || e.type === 'state_sync').toBe(true);
+    if (e.type === 'lobby') expect(e.room.code).toBe(code);
+
+    // The re-bound socket must now be authorized for room actions.
+    // A guest joins first so the room survives the host's leave_room
+    // (an emptied room is deleted and broadcasts nothing).
+    const guest = await connect();
+    const joined = once(guest) as Promise<any>;
+    emit(guest, { token: '', action: { type: 'join_room', code, name: 'Guest' } });
+    await joined;
+
+    const left = new Promise<any>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('timeout waiting for lobby after leave')), 5000);
+      // The leaver (page2) gets no broadcast (socket.leave runs first);
+      // the remaining guest sees the roster update.
+      guest.on('event', (ev3: ServerEvent) => {
+        if (ev3.type === 'lobby' && !(ev3 as any).room.players.some((p: any) => p.name === 'Host')) {
+          clearTimeout(t); resolve(ev3);
+        }
+      });
+    });
+    emit(page2, { token, action: { type: 'leave_room' } });
+    const leftEv = await left;
+    expect((leftEv as any).room.players).toHaveLength(1);
+    expect((leftEv as any).room.players[0].name).toBe('Guest');
+
+    // A forged token still cannot rejoin.
+    const forger = await connect();
+    const rej2 = nextEvent(forger, 'rejected');
+    emit(forger, { token: 'forged-token-xyz', action: { type: 'ping_state' } });
+    const r = await rej2;
+    expect(r.type).toBe('rejected');
+
+    host.disconnect(); page2.disconnect(); forger.disconnect(); guest.disconnect();
+  });
+
   it('two clients join and receive identical lobby broadcasts', async () => {
     const host = await connect();
     const created = once(host) as Promise<any>;
@@ -147,14 +203,23 @@ describe('room protocol over WebSocket', () => {
     expect(r2.type).toBe('rejected');
     expect((r2 as any).error).toContain('host');
 
-    // host token used from the wrong socket is also rejected
-    const hijacker = await connect();
-    const rej3 = nextEvent(hijacker, 'rejected');
-    emit(hijacker, { token: createdEv.token, action: { type: 'lock_roster' } });
-    const r3 = await rej3;
-    expect(r3.type).toBe('rejected');
+    // a valid host token carried by a NEW socket now re-binds (rejoin fix):
+    // token possession is session authority (bearer semantics — the same
+    // rule the S03 boot restore relies on). The lock goes through.
+    const rejoiner = await connect();
+    const locked = nextEvent(rejoiner, 'roster_locked');
+    emit(rejoiner, { token: createdEv.token, action: { type: 'lock_roster' } });
+    const lockEv = await locked;
+    expect(lockEv.room.status).toBe('locked');
 
-    host.disconnect(); guest.disconnect(); attacker.disconnect(); hijacker.disconnect();
+    // a token from a room that never existed still cannot rejoin
+    const ghost = await connect();
+    const rej4 = nextEvent(ghost, 'rejected');
+    emit(ghost, { token: 'totally-fabricated-token', action: { type: 'lock_roster' } });
+    const r4 = await rej4;
+    expect(r4.type).toBe('rejected');
+
+    host.disconnect(); guest.disconnect(); attacker.disconnect(); rejoiner.disconnect(); ghost.disconnect();
   });
 
   it('host locks the roster once min players reached; lock broadcast to all', async () => {

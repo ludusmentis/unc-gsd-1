@@ -100,6 +100,22 @@ export function attachWs(httpServer: HttpServer): IOServer {
         return;
       }
 
+      // ---- rejoin: a token issued to an earlier socket (previous page's
+      // mount, or a pre-restart persisted session) re-binds to this socket.
+      // Without this, every client page navigation remounts the socket and
+      // the stale binding dooms the stored token (invalid_token).
+      const carriedToken = env?.token;
+      if (
+        typeof carriedToken === 'string' &&
+        (!socket.data?.roomCode || !authorize(carriedToken, socket.data.roomCode, socket.id))
+      ) {
+        const rejoinedRoom = tryRejoin(io, carriedToken, socket.id);
+        if (rejoinedRoom) {
+          socket.data = { token: carriedToken, roomCode: rejoinedRoom };
+          socket.join(rejoinedRoom);
+        }
+      }
+
       // ---- everything else requires a valid session bound to this socket ----
       const token = env?.token;
       if (typeof token !== 'string' || !socket.data?.roomCode || !authorize(token, socket.data.roomCode, socket.id)) {
