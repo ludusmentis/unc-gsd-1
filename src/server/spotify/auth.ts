@@ -76,6 +76,14 @@ interface TokenResponse {
   scope?: string;
 }
 
+/** Thrown by exchangeCode — `status` carries the Spotify HTTP code (403 = allowlist rejection). */
+export class ExchangeError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = 'ExchangeError';
+  }
+}
+
 /** Exchange an authorization code for tokens. `fetchImpl` injectable for tests. */
 export async function exchangeCode(
   code: string,
@@ -97,7 +105,9 @@ export async function exchangeCode(
   });
   if (!res.ok) {
     logAuth('token_exchange_failed', { status: res.status });
-    throw new Error(`spotify token exchange failed: ${res.status}`);
+    // R021: 403 = developer-mode allowlist rejection — a typed error so the
+    // callback route can surface Gen Z copy instead of a raw string.
+    throw new ExchangeError(`spotify token exchange failed: ${res.status}`, res.status);
   }
   const json = (await res.json()) as TokenResponse;
   const tokens: SpotifyTokens = {

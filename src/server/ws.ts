@@ -9,10 +9,19 @@ import {
   lockRoster,
   removePlayer,
   validName,
-  _resetForTests,
+  _resetForTests as resetRoomsForTests,
 } from './rooms';
 import { authorize, issueSession, rebindSocket, sessionPlayer, hash, expireRoomSessions, _resetForTests as resetSessions } from './sessions';
-import { startGame, onPlaced, wakeSpeaker, onNextTurn, onSkipTurn, getGameStateSync } from './game';
+import {
+  startGame,
+  onPlaced,
+  wakeSpeaker,
+  onNextTurn,
+  onSkipTurn,
+  getGameStateSync,
+  pauseForHostLeave,
+  resumeAfterHostRejoin,
+} from './game';
 
 const ROOM_NS = '/game';
 
@@ -30,6 +39,42 @@ interface SocketData {
  */
 function logRoom(roomCode: string, event: string, extra: Record<string, unknown> = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), scope: 'room', room: roomCode, event, ...extra }));
+}
+
+/** Grace window before a host socket drop actually pauses the room
+ * (S03-T04). A page navigation (lobby -> game) remounts the host's socket
+ * and would otherwise false-pause on every game start; the rejoin that
+ * follows inside the window cancels the pending pause. */
+export const HOST_LEAVE_GRACE_MS = 2000;
+
+const pendingHostPause = new Map<string, ReturnType<typeof setTimeout>>();
+
+function cancelPendingHostPause(roomCode: string): void {
+  const t = pendingHostPause.get(roomCode);
+  if (t) {
+    clearTimeout(t);
+    pendingHostPause.delete(roomCode);
+  }
+}
+
+function scheduleHostPause(io: IOServer, roomCode: string): void {
+  cancelPendingHostPause(roomCode);
+  pendingHostPause.set(
+    roomCode,
+    setTimeout(() => {
+      pendingHostPause.delete(roomCode);
+      pauseForHostLeave(roomCode, io).catch((err) =>
+        logRoom(roomCode, 'host_leave_pause_failed', { detail: String(err).slice(0, 120) }),
+      );
+    }, HOST_LEAVE_GRACE_MS),
+  );
+  logRoom(roomCode, 'host_leave_scheduled', { graceMs: HOST_LEAVE_GRACE_MS });
+}
+
+/** Test hook: drop any pending host-leave pause timers. */
+export function _clearPendingHostPauses(): void {
+  for (const t of pendingHostPause.values()) clearTimeout(t);
+  pendingHostPause.clear();
 }
 
 function toClientRoom(room: ReturnType<typeof getRoom> & {}) {
@@ -121,6 +166,9 @@ export function attachWs(httpServer: HttpServer): IOServer {
         socket.data = { token: reToken, roomCode: reRoom.code };
         socket.join(reRoom.code);
         logRoom(reRoom.code, 'session_rebound', { player: reSession.playerId });
+        // The host rebinding within the grace window cancels any pending
+        // host-leave pause (lobby -> game page remount, quick phone lock).
+        if (reRoom.hostPlayerId === reSession.playerId) cancelPendingHostPause(reRoom.code);
         const you = reRoom.players.find((p) => p.id === reSession.playerId);
         if (you) {
           send({ type: 'rejoined', room: toClientRoom(reRoom), you, token: reToken });
@@ -130,6 +178,12 @@ export function attachWs(httpServer: HttpServer): IOServer {
           send({ type: 'state_sync', state: snap });
         } else {
           broadcastLobby(io, reRoom.code);
+        }
+        // S03-T04 (R008/R010): the host rejoining a host-leave-paused room
+        // flips it back to in_progress and resumes the current turn
+        // exactly (re-plays the unplaced track; no turn was consumed).
+        if (reRoom.status === 'paused' && reRoom.hostPlayerId === reSession.playerId) {
+          await resumeAfterHostRejoin(reRoom.code, io);
         }
         return;
       }
@@ -185,6 +239,9 @@ export function attachWs(httpServer: HttpServer): IOServer {
           break;
         }
         case 'place_song': {
+          // S03-T04: placements only run in_progress — a host-leave paused
+          // room rejects them (resume happens on host rejoin).
+          if (room.status !== 'in_progress') return reject('game_not_in_progress');
           // Server-authoritative placement (R020): the session was already
           // authorized above; here we validate the action payload shape,
           // then the server evaluates via the pure scoring module and emits
@@ -256,11 +313,17 @@ export function attachWs(httpServer: HttpServer): IOServer {
 
     socket.on('disconnect', () => {
       const { token, roomCode } = socket.data ?? {};
-      if (token && roomCode) {
-        const session = sessionPlayer(token);
-        if (session) {
-          logRoom(roomCode, 'socket_disconnected', { player: session.playerId });
-        }
+      if (!token || !roomCode) return;
+      const session = sessionPlayer(token);
+      if (!session) return;
+      logRoom(roomCode, 'socket_disconnected', { player: session.playerId });
+      // S03-T04 (R008/R010): host dropping mid-game pauses the room after a
+      // short grace window (see HOST_LEAVE_GRACE_MS) — Gen Z copy, nudge
+      // timer cleared, speaker paused best-effort. Non-host disconnects
+      // change nothing — they rejoin via the T02 path.
+      const room = getRoom(roomCode);
+      if (room && room.status === 'in_progress' && room.hostPlayerId === session.playerId) {
+        scheduleHostPause(io, roomCode);
       }
     });
   });
@@ -275,6 +338,7 @@ export function tryRejoin(io: IOServer, token: string, socketId: string): string
     const room = getRoom(session.roomId);
     if (room) {
       logRoom(session.roomId, 'session_rebound', { player: session.playerId });
+      if (room.hostPlayerId === session.playerId) cancelPendingHostPause(room.code);
       return session.roomId;
     }
   }
@@ -290,6 +354,10 @@ export function endRoom(io: IOServer, roomCode: string) {
   logRoom(roomCode, 'room_ended');
 }
 
-export { _resetForTests, resetSessions };
+export function _resetForTests(): void {
+  _clearPendingHostPauses();
+  resetRoomsForTests();
+}
+export { resetSessions };
 export const ROOM_NAMESPACE = ROOM_NS;
 export { broadcastLobby, logRoom };

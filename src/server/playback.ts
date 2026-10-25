@@ -170,7 +170,7 @@ export class PlaybackService {
    * Pause playback (placement committed or turn ended). Also disarms the
    * audio cap — pausing for any reason satisfies the cap.
    */
-  async pause(cause: 'audio_cap' | 'placement' | 'turn_end'): Promise<void> {
+  async pause(cause: 'audio_cap' | 'placement' | 'turn_end' | 'host_leave'): Promise<void> {
     this.disarmCap();
     let deviceId = this.capDeviceId;
     if (!deviceId) {

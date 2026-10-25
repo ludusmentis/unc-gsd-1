@@ -81,6 +81,10 @@ export default function GamePage() {
           setSnap(e.state);
           // Snapshot wins over any stale anchor seed / dealt card echo.
           if (e.state.status !== 'in_progress') setDealt(null);
+          // S03-T04: the snapshot is authoritative on (re)connect too — a
+          // host-leave pause/resume or rejoin restores the active player's
+          // dealt card straight from state.turn.
+          else if (e.state.turn && e.state.turn.playerId === (id?.playerId ?? '')) setDealt(e.state.turn.track);
           break;
         case 'song_dealt': {
           setDealt(e.track);
@@ -140,6 +144,14 @@ export default function GamePage() {
   const awaitingNext = snap?.awaitingNext ?? null;
   const scores = snap?.scores ?? {};
   const speakerPaused = snap?.speakerPaused ?? false;
+  const roomPaused = snap?.status === 'paused';
+
+  // S03-T04: toast when the host re-joins (paused -> in_progress via snapshot).
+  const prevRoomPaused = useRef(false);
+  useEffect(() => {
+    if (prevRoomPaused.current && !roomPaused) toast(COPY.hostBack);
+    prevRoomPaused.current = roomPaused;
+  }, [roomPaused]);
 
   // S03-T03: toast when the speaker comes back (paused -> resumed via snapshot).
   const prevPaused = useRef(false);
@@ -242,6 +254,15 @@ export default function GamePage() {
           ) : (
             <p style={styles.small}>{COPY.speakerPaused.recovery}</p>
           )}
+        </section>
+      )}
+
+      {/* S03-T04 (R008/R010): host dipped — room paused banner, no dead ends.
+          The current turn is kept; the host's rejoin auto-resumes it. */}
+      {roomPaused && !speakerPaused && (
+        <section aria-label="room paused" style={styles.paused}>
+          <p style={styles.p}>{COPY.hostDipped.error}</p>
+          <p style={styles.small}>{COPY.hostDipped.recovery}</p>
         </section>
       )}
 

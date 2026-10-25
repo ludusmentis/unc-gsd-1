@@ -12,7 +12,7 @@ export interface Player {
 
 export interface RoomState {
   code: string;
-  status: 'lobby' | 'locked' | 'in_progress' | 'ended';
+  status: 'lobby' | 'locked' | 'in_progress' | 'paused' | 'ended';
   players: Player[];
   maxPlayers: number;
   minPlayers: number;

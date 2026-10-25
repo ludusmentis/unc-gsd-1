@@ -53,4 +53,17 @@ export const COPY = {
   next: 'next 🔜',
   skipHost: 'skip 🔀',
   deckEmpty: 'outta songs — longest timeline takes the W 🏆',
+  hostDipped: {
+    error: 'host dipped — one sec 🫠',
+    recovery: "they'll be right back — the game's paused rn",
+  },
+  hostBack: 'host\u2019s back — running it back 🔊',
+  notAllowlisted: {
+    error: 'your spotify login got blocked',
+    recovery: 'ask the host to add you on spotify 😅 then retry',
+    retry: 'retry spotify login',
+  },
+  hostAddFriend: 'add {name} on spotify to let them in',
+  spotifyUserManagement: 'https://developer.spotify.com/dashboard',
+  userManagementLink: 'spotify user management →',
 } as const;

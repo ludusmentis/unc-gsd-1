@@ -6,7 +6,9 @@ import {
   newHostSessionId,
   saveHostTokens,
   HOST_SESSION_COOKIE,
+  ExchangeError,
 } from '@/server/spotify/auth';
+import { decodeState } from '@/server/spotify/oauth-state';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +49,21 @@ export async function GET(req: NextRequest) {
     });
     return res;
   } catch (err) {
+    // S03-T04 (R021): a 403 from the token exchange = the account is not on
+    // the developer-mode allowlist. No raw error ever surfaces — the host
+    // screen gets the friend's name + COPY.notAllowlisted / COPY.hostAddFriend.
+    if (err instanceof ExchangeError && err.status === 403) {
+      const { name } = decodeState(url.searchParams.get('state'));
+      console.log(JSON.stringify({
+        ts: new Date().toISOString(),
+        scope: 'spotify-auth',
+        event: 'oauth_allowlist_rejected',
+        name: name ?? null,
+      }));
+      const qs = new URLSearchParams({ auth: 'not_allowlisted' });
+      if (name) qs.set('name', name);
+      return back(`?${qs.toString()}`);
+    }
     console.log(JSON.stringify({
       ts: new Date().toISOString(),
       scope: 'spotify-auth',

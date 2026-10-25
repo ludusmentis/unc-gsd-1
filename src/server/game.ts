@@ -541,6 +541,63 @@ export async function dealNext(roomCode: string, io: IOServer): Promise<void> {
  * auto-deal): the just-played player's next_turn deals, host skip
  * force-deals.
  */
+// ---- S03-T04 host-leave pause / rejoin resume (R008/R010) ----
+
+/**
+ * Host socket dropped mid-game (R008/R010): flip the room to `paused`,
+ * clear the nudge timer, best-effort pause the speaker, and broadcast
+ * game_error with COPY.hostDipped plus a state_sync so clients raise the
+ * paused banner. No game state is touched — `current` stays put so the
+ * rejoining host resumes the exact same turn.
+ */
+export async function pauseForHostLeave(roomCode: string, io: IOServer): Promise<void> {
+  const room = getRoom(roomCode);
+  const game = games.get(roomCode);
+  if (!room || room.status !== 'in_progress' || !game) return;
+  room.status = 'paused';
+  saveRoom(room);
+  if (game.nudgeTimer) clearTimeout(game.nudgeTimer);
+  game.nudgeTimer = null;
+  game.awaitingNextAt = null;
+  persistGameState(roomCode);
+  try {
+    await game.playback?.pause('host_leave');
+  } catch { /* best-effort — speaker may already be gone */ }
+  logGame(roomCode, 'host_leave_pause', { player: game.current?.playerId ?? null });
+  roomEvent(io, roomCode, { type: 'game_error', ...COPY.hostDipped });
+  broadcastSync(roomCode, io);
+}
+
+/**
+ * Host came back (via the T02 rejoin path — token survives, hostPlayerId
+ * unchanged): flip the room back to in_progress, broadcast state_sync, and
+ * re-play the CURRENT unplaced track (wakeSpeaker handles re-placement +
+ * clear of any stale speakerPaused flag). No turn was consumed while
+ * paused, so resumption is exact.
+ */
+export async function resumeAfterHostRejoin(roomCode: string, io: IOServer): Promise<void> {
+  const room = getRoom(roomCode);
+  const game = games.get(roomCode);
+  if (!room || room.status !== 'paused' || !game) return;
+  room.status = 'in_progress';
+  saveRoom(room);
+  logGame(roomCode, 'host_rejoin_resume', { player: game.current?.playerId ?? null });
+  broadcastSync(roomCode, io);
+  // Re-arm the nudge timer if the room was parked on awaiting_next.
+  if (game.awaitingNext && !game.nudgeTimer) {
+    game.awaitingNextAt = Date.now() + NUDGE_AFTER_MS;
+    game.nudgeTimer = setTimeout(() => {
+      const g = games.get(roomCode);
+      if (!g || !g.awaitingNext) return;
+      logGame(roomCode, 'nudge_sent', { player: g.awaitingNext });
+      roomEvent(io, roomCode, { type: 'nudge', playerId: g.awaitingNext, copy: COPY.nudge });
+      g.nudgeTimer = null;
+      g.awaitingNextAt = null;
+    }, NUDGE_AFTER_MS);
+  }
+  await wakeSpeaker(roomCode, io);
+}
+
 export async function onPlaced(
   roomCode: string,
   playerId: string,
