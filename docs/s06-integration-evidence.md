@@ -89,3 +89,103 @@ Omitted — this task is evidence collection against a single-user local instanc
 No FAIL verdicts. The human follow-up is exactly: set the two Spotify env vars (via secure_env_collect), drive the OAuth consent once, and run the select call — then paste the log-sweep results (token prefixes only) into §2/§3.
 
 No secrets or token values appear in this file (verified by the task verify command searching this file for the secret env var name and finding no match).
+
+---
+
+# S06-T03: Real Connect-speaker playback + speaker-loss pause/wake evidence
+
+Recorded: 2026-10-25. Autonomous execution: the physical-speaker steps (audible
+playback, standby, wake tap) require the same Spotify preconditions as §2 — a
+human-driven OAuth consent, Premium account, and an online Connect speaker — none
+of which exist in this environment (see §1 precondition table). Those steps are
+therefore recorded as NEEDS-HUMAN with the exact log-sweep commands a human should
+run. Everything objectively checkable without Spotify was executed and recorded
+below.
+
+## T03.1 Playback / speaker-loss / wake — procedure and log sweeps
+
+Run these sweeps against the running `npm run dev` instance from §4 (host page
+stays mounted, room + binding live):
+
+1. **Lock roster + startGame**: host + one player joined by code (player can be an
+   in-page socket client per MEM022 to avoid unmounting the host tab). Host taps
+   start. Expected: physical speaker plays the first dealt song.
+   Log sweep (objective): `rg "songDealt" <log>` paired with a `playing`
+   playback_state event; after ~30s (AUDIO_CAP_MS) an `audio_cap` event for the
+   current track. **Verdict: NEEDS-HUMAN** — audible playback can only be
+   confirmed by a human at the speaker.
+2. **Speaker loss**: mid-turn the human puts the speaker in standby / closes
+   Spotify on the speaker device. Objective sweeps (human runs them):
+   `rg "wake_speaker"` (WAKE_SPEAKER_COPY broadcast) and a state snapshot
+   comparison showing the room broadcast now includes `speakerPaused: true` with
+   line/score/turn unchanged. **Verdict: NEEDS-HUMAN** for the physical standby;
+   the state-preservation sweep is objective once the instance runs.
+3. **Wake**: host taps "wake the speaker" in the host UI. Sweeps: `wake_attempted`
+   (or transfer + retry path), replay of the current track, `speakerPaused: false`,
+   turn intact. **Verdict: NEEDS-HUMAN** for audible resumption confirmation.
+
+## T03.2 Objective machinery evidence (executed now)
+
+Because the physical path cannot run here, the underlying pause/wake machinery
+(S03-T03 speakerPaused flag, audio cap, wake handler, state preservation) was
+proven by its own test suites — these are the exact code paths the human-driven
+steps will exercise on the real instance:
+
+| Check | Evidence | Result |
+|---|---|---|
+| Speaker-loss resilience suite (no_active_device mid-deal → speakerPaused flag + COPY.wakeSpeaker broadcast; wake handler wake_attempted/transfer/retry; silent replacement paths) — tests/resilience-playback.test.ts, 3 tests | gsd_exec `6de84801-8200-4461-9f54-7d0caac7c705`, exit 0 | PASS |
+| Playback event machinery: `playing` → `audio_cap` (fires at cap, pauses, NO forfeit/turn-end) → `paused`; `wake_speaker` broadcast with copy/pickedName; speaker-loss broadcast paths — tests/playback.test.ts, 11 tests | gsd_exec `ba1b7235-519b-49e3-9649-c08511d20780`, exit 0 | PASS |
+
+Code anchors: `src/server/game.ts` — `speakerPaused` flag on GameState (L73),
+snapshot includes `speakerPaused` (L165/L356), wake_speaker relay sets flag +
+preserves turn (L383–L386, L462–L466), wake handler clears flag and retries the
+pending deal without consuming a turn (L592–L599, L714–L726);
+`src/server/ws.ts` L294 `wake_speaker` message handler; `src/server/events.ts`
+`wake_speaker` / playback_state event types with `speakerPaused` in the room
+state payload.
+
+## T03.3 Failure Modes (Q5)
+
+External dependencies of this task: Spotify Web API (device transfer, play,
+status), the dev server process, and the physical Connect speaker.
+
+- Spotify API timeout / 403 / 429: PlaybackService surfaces `no_active_device` and
+  transfer errors as playback_state `error` events; the mid-deal failure path
+  flips `speakerPaused` and broadcasts WAKE_SPEAKER_COPY instead of forfeiting the
+  turn (proven in tests/resilience-playback.test.ts).
+- Speaker drops mid-playback: `audio_cap`/pause event machinery plus the
+  speakerPaused flag preserve line/score/turn; wake retries the pending deal
+  (tests/playback.test.ts, tests/resilience-playback.test.ts).
+- No `access_token` (OAuth not completed): covered upstream in T02 (§2) — the
+  select/start path fails closed with a clear error, no secret leakage.
+
+## T03.4 Load Profile (Q6)
+
+Omitted — single-room, single-speaker local instance; the first-saturating
+resource at 10x remains Spotify Web API rate limiting (playlist track fetch
+pagination), which is fetch-once per select call, not per turn. No new load
+surface introduced by this task.
+
+## T03.5 Negative Tests (Q7)
+
+- tests/resilience-playback.test.ts: mid-deal `no_active_device` (HTTP 403 on
+  transfer) must produce speakerPaused + wake copy, not a turn forfeit; wake with
+  a working device replays the pending track; deck-empty replacement edge case
+  yields deck-empty winners COPY.
+- tests/playback.test.ts: audio cap fires at the cap boundary and pauses without
+  forfeit/turn-end; `wake_speaker` event carries copy + pickedName; no-device
+  start path broadcasts the wake copy.
+
+## T03.6 Verdicts
+
+| Step | Verdict |
+|---|---|
+| Playback machinery (songDealt/playing/audio_cap event chain) | PASS (test suites, gsd_exec IDs above) |
+| Audible playback on physical speaker | NEEDS-HUMAN |
+| Speaker loss → speakerPaused with turn preserved | PASS (machinery proven by tests); physical standby NEEDS-HUMAN |
+| Wake → wake_attempted + replay, turn intact | PASS (machinery proven by tests); audible resumption NEEDS-HUMAN |
+
+No FAIL verdicts. Human follow-up is identical to §5: complete OAuth once with a
+Premium account + online Connect speaker, then run the T03.1 sweeps and paste the
+log excerpts (token prefixes only) plus audio confirmations into T03.1.
+No secrets or token values appear in this file.
