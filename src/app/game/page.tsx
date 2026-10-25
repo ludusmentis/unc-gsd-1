@@ -6,6 +6,7 @@ import { connectGameSocket, sendAction } from '@/lib/socket';
 import type { ServerEvent, GameStateSync, TrackSummary, LineEntry as ServerLineEntry } from '@/server/events';
 import { placeSongEnvelope, entriesToSlots, yearLabel, type LineEntry as DisplaySlot } from '@/lib/dnd';
 import { COPY } from '@/lib/copy';
+import { loadIdentity } from '@/lib/session-store';
 import { randomQuip } from '@/lib/commentary';
 import DealtSong from '@/components/DealtSong';
 import SongLine from '@/components/SongLine';
@@ -58,15 +59,16 @@ export default function GamePage() {
   myRef.current = { myId, isHost };
 
   useEffect(() => {
-    const t = sessionStorage.getItem('token') ?? '';
-    const code = sessionStorage.getItem('code') ?? '';
-    const id = sessionStorage.getItem('playerId') ?? '';
+    const id = loadIdentity();
+    const myPlayerId = id?.playerId ?? '';
+    const t = id?.token ?? '';
+    const code = id?.code ?? '';
     setToken(t);
     setRoomCode(code);
-    setMyId(id);
-    setIsHost(sessionStorage.getItem('isHost') === '1');
+    setMyId(id?.playerId ?? '');
+    setIsHost(id?.isHost ?? false);
     try {
-      const a = sessionStorage.getItem('anchor');
+      const a = localStorage.getItem('anchor');
       if (a) setAnchor(JSON.parse(a) as TrackSummary);
     } catch { /* corrupt seed ignored — snapshot carries the truth anyway */ }
 
@@ -84,10 +86,10 @@ export default function GamePage() {
           setDealt(e.track);
           setOutcome(null);
           setRevealSlots([]);
-          const mine = (id && e.anchors[id]) || null;
+          const mine = (id?.playerId && e.anchors[id.playerId]) || null;
           if (mine) {
             setAnchor(mine);
-            sessionStorage.setItem('anchor', JSON.stringify(mine));
+            try { localStorage.setItem('anchor', JSON.stringify(mine)); } catch { /* noop */ }
           }
           setQuip(randomQuip());
           break;
@@ -102,7 +104,7 @@ export default function GamePage() {
           setQuip(randomQuip());
           break;
         case 'awaiting_next':
-          if (e.playerId !== id) setDealt(null);
+          if (e.playerId !== myPlayerId) setDealt(null);
           break;
         case 'game_over':
           setOver({ winnerIds: e.winnerIds, reason: e.reason, copy: e.copy });
@@ -120,11 +122,13 @@ export default function GamePage() {
       }
     });
 
-    // (Re)connect sync: ask for the authoritative snapshot immediately.
+    // (Re)connect sync: re-bind the stored identity (survives phone lock /
+    // tab close / server restart — R009), then take the authoritative
+    // snapshot. ping_state remains the mid-session refresh path.
     socket.on('connect', () => {
-      if (t) sendAction(socket, { token: t, action: { type: 'ping_state' } });
+      if (t) sendAction(socket, { token: t, action: { type: 'rejoin' } });
     });
-    if (socket.connected && t) sendAction(socket, { token: t, action: { type: 'ping_state' } });
+    if (socket.connected && t) sendAction(socket, { token: t, action: { type: 'rejoin' } });
 
     return () => { socket.disconnect(); };
   }, []);

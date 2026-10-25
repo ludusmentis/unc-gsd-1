@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { connectGameSocket, sendAction } from '@/lib/socket';
+import { saveIdentity } from '@/lib/session-store';
 import type { ServerEvent } from '@/server/events';
 
 export default function JoinPage() {
@@ -16,10 +17,7 @@ export default function JoinPage() {
     (window as any).__gameSocket = socket;
     socket.on('event', (e: ServerEvent) => {
       if (e.type === 'joined') {
-        sessionStorage.setItem('token', e.token);
-        sessionStorage.setItem('code', e.room.code);
-        sessionStorage.setItem('playerId', e.you.id);
-        sessionStorage.setItem('isHost', '0');
+        saveIdentity({ token: e.token, code: e.room.code, playerId: e.you.id, isHost: false });
         router.push('/lobby');
       } else if (e.type === 'rejected') {
         setErr(`${e.error} — ${e.recovery ?? ''}`);

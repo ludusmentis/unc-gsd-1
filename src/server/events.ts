@@ -30,6 +30,7 @@ export type ClientAction =
   | { type: 'next_turn' }
   | { type: 'skip_turn' }
   | { type: 'ping_state' }
+  | { type: 'rejoin' }
   | { type: 'wake_speaker' };
 
 /** Envelope for any client action: forged actions without a valid session
@@ -79,6 +80,7 @@ export type ServerEvent =
   | { type: 'playback_state'; state: 'playing' | 'paused' | 'audio_cap' | 'wake_speaker' | 'error'; copy?: string; message?: string }
   | { type: 'song_placed'; playerId: string; trackId: string; slotIndex: number }
   | { type: 'state_sync'; state: GameStateSync }
+  | { type: 'rejoined'; room: RoomState; you: Player; token: SessionToken }
   | { type: 'turn_result'; playerId: string; track: TrackSummary; slotIndex: number }
   | { type: 'turn_forfeit'; playerId: string; track: TrackSummary; year: string; correctSlots: number[] }
   | { type: 'awaiting_next'; playerId: string }

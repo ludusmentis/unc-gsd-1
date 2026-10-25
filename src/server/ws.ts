@@ -100,7 +100,41 @@ export function attachWs(httpServer: HttpServer): IOServer {
         return;
       }
 
-      // ---- rejoin: a token issued to an earlier socket (previous page's
+      // ---- rejoin: explicit identity re-bind (R009) BEFORE token
+      // authorization. A token issued to an earlier socket (page remount,
+      // phone lock, tab close, server restart) re-binds to this socket and
+      // immediately receives the authoritative snapshot. Never mutates game
+      // state (R020). A token bound to this same socket (or bound fresh)
+      // both pass; a garbage token gets invalid_token like anywhere else.
+      if (env?.action?.type === 'rejoin') {
+        const reToken = typeof env.token === 'string' ? env.token : '';
+        const reSession = reToken ? sessionPlayer(reToken) : null;
+        if (!reSession) {
+          logRoom('?', 'rejoin_rejected', { token: reToken ? hash(reToken) : null });
+          return reject('invalid_token');
+        }
+        if (!rebindSocket(reToken, socket.id)) {
+          return reject('invalid_token');
+        }
+        const reRoom = getRoom(reSession.roomId);
+        if (!reRoom) return reject('room_not_found');
+        socket.data = { token: reToken, roomCode: reRoom.code };
+        socket.join(reRoom.code);
+        logRoom(reRoom.code, 'session_rebound', { player: reSession.playerId });
+        const you = reRoom.players.find((p) => p.id === reSession.playerId);
+        if (you) {
+          send({ type: 'rejoined', room: toClientRoom(reRoom), you, token: reToken });
+        }
+        const snap = getGameStateSync(reRoom.code);
+        if (snap) {
+          send({ type: 'state_sync', state: snap });
+        } else {
+          broadcastLobby(io, reRoom.code);
+        }
+        return;
+      }
+
+      // ---- rejoin (legacy path): a token issued to an earlier socket (previous page's
       // mount, or a pre-restart persisted session) re-binds to this socket.
       // Without this, every client page navigation remounts the socket and
       // the stale binding dooms the stored token (invalid_token).

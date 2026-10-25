@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { connectGameSocket, sendAction } from '@/lib/socket';
+import { loadIdentity } from '@/lib/session-store';
 import { COPY } from '@/lib/copy';
 import type { RoomState, ServerEvent } from '@/server/events';
 import LobbyPanel from '@/components/LobbyPanel';
@@ -33,8 +34,10 @@ export default function LobbyPage() {
   const [speaker, setSpeaker] = useState('');
 
   useEffect(() => {
-    const token = sessionStorage.getItem('token') ?? '';
-    setIsHost(sessionStorage.getItem('isHost') === '1');
+    const identity = loadIdentity();
+    const token = identity?.token ?? '';
+    const isHost = identity?.isHost ?? false;
+    setIsHost(isHost);
 
     const socket = connectGameSocket();
     (window as any).__gameSocket = socket;
@@ -56,11 +59,15 @@ export default function LobbyPage() {
       }
     });
 
-    // re-request authoritative lobby state for this session
-    if (token) sendAction(socket, { token, action: { type: 'ping_state' } });
+    // re-bind the persisted identity on every (re)connect (R009), then take
+    // the authoritative lobby state. ping_state stays the mid-session path.
+    socket.on('connect', () => {
+      if (token) sendAction(socket, { token, action: { type: 'rejoin' } });
+    });
+    if (socket.connected && token) sendAction(socket, { token, action: { type: 'rejoin' } });
 
     // host: offer the playlist picker (requires the OAuth cookie)
-    if (sessionStorage.getItem('isHost') === '1') {
+    if (isHost) {
       fetch('/api/spotify/playlists')
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => d?.playlists && setPlaylists(d.playlists))
@@ -71,7 +78,7 @@ export default function LobbyPage() {
 
   const lockPlaylist = async () => {
     setErr(null);
-    const code = sessionStorage.getItem('code') ?? '';
+    const code = loadIdentity()?.code ?? '';
     try {
       const res = await fetch('/api/spotify/select', {
         method: 'POST',
@@ -98,7 +105,7 @@ export default function LobbyPage() {
 
   const startGame = () => {
     const socket = (window as any).__gameSocket;
-    const token = sessionStorage.getItem('token') ?? '';
+    const token = loadIdentity()?.token ?? '';
     setStarting(true);
     if (socket) sendAction(socket, { token, action: { type: 'lock_roster' } });
   };
