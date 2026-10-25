@@ -10,6 +10,13 @@ require a human driving Spotify (OAuth consent, playlist selection, Connect spea
 are recorded below as NEEDS-HUMAN with exactly what the human must confirm. No fake
 Spotify stub (`scripts/uat-fake-spotify.mjs`) was used anywhere in this evidence run.
 
+> **Closeout status (2026-10-25, decision D012):** the physical Spotify steps in this
+> file are accepted as human caveats for the M001 closeout. The automatable portion of
+> the Integration verification (rejoin, speaker-loss recovery, restart-recovery) is
+> proven green in the vitest suites (2/2 restart-recovery; 123/123 full suite). Driving
+> the physical OAuth/Connect-speaker flow below supersedes D012 for the real-speaker
+> portion of the Integration evidence.
+
 ## 1. Preconditions (status)
 
 | Item | Status | Evidence |

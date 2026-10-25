@@ -4,6 +4,14 @@
 **Target:** https://un.clord.org (Cloudflare Tunnel → Unraid docker-compose)
 **Devices:** real iOS Safari (portrait) + real Android Chrome (portrait)
 
+> **Closeout status (2026-10-25, decision D012):** this checklist is an accepted
+> human caveat for M001 closeout — it is the superseding path to live proof, not
+> an open blocker. The milestone closed on the automated suites (123/123), the
+> local Docker container deploy-smoke, and the real-browser three-client flow.
+> Completing this checklist and recording results in
+> `docs/s07-real-device-uat-results.md` supersedes D012 and restores live
+> verification for R011/R012.
+
 This checklist is the human verification path for R012 (real-device play) and
 the resilience requirements. Automated evidence covers only reachability and the
 WS smoke (scripts/verify-deploy.mjs); everything below requires a person on a

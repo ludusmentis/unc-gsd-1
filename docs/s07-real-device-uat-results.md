@@ -10,6 +10,16 @@ deployment available yet. Per the NEEDS-HUMAN convention (S04-T03 / R012, and
 docs/s06-integration-evidence.md), human-required rows carry the exact commands
 or procedure to run.
 
+> **Closeout status (2026-10-25, decision D012):** all deploy and game-night
+> rows in this file are **accepted human caveats** for the M001 closeout — the
+> milestone validated (round 1, verdict: pass) and closeout was prepared on the
+> strength of the automated suites (123/123 vitest), the local Docker build +
+> container deploy-smoke (VERIFY-OK), and the real-browser three-client flow.
+> The rows below remain unexecuted and honest: nothing has been fabricated.
+> Executing DEPLOY.md on Unraid, re-running the §1 pre-flight commands, and
+> completing the §3 game-night checklist supersedes D012 and restores live
+> verification for R011/R012.
+
 ## 1. Pre-flight automatable checks
 
 These can be run by the executor once the stack is up at https://un.clord.org.
